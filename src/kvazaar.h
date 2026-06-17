@@ -494,6 +494,8 @@ typedef struct kvz_config
   uint8_t fast_bipred;
 
   uint8_t enable_logging_output; //!< \brief May be used to disable the logging output to stderr. Default: on.
+
+  char *occupancy_path; /*!< \brief Path to occupancy .bin file for guided CU skip */
 } kvz_config;
 
 /**

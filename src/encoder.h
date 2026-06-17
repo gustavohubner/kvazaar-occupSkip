@@ -153,6 +153,14 @@ typedef struct encoder_control_t
 
   struct kvz_rc_data *rc_data;
 
+  //! Occupancy-guided CU skip data
+  struct {
+    uint8_t  *data;           /*!< raw occupancy blocks (all entries concatenated) */
+    uint32_t *blocks_high;    /*!< array of heights per entry (frameCount entries) */
+    uint32_t  frame_count;    /*!< number of entries (frames × layers) */
+    uint32_t  blocks_wide;    /*!< blocks per row = ceil(mapWidth / 8) */
+  } occupancy;
+
 } encoder_control_t;
 
 encoder_control_t* kvz_encoder_control_init(const kvz_config *cfg);

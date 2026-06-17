@@ -166,6 +166,7 @@ encoder_control_t* kvz_encoder_control_init(const kvz_config *const cfg)
   encoder->cfg.tiles_height_split = NULL;
   encoder->cfg.slice_addresses_in_ts = NULL;
   encoder->cfg.fast_coeff_table_fn = NULL;
+  encoder->cfg.occupancy_path = NULL;
 
   if (encoder->cfg.gop_len > 0) {
     if (encoder->cfg.gop_lowdelay) {
@@ -296,6 +297,81 @@ encoder_control_t* kvz_encoder_control_init(const kvz_config *const cfg)
     fclose(fast_coeff_table_f);
   } else {
     kvz_fast_coeff_use_default_table(&encoder->fast_coeff_table);
+  }
+
+  // Occupancy data
+  encoder->occupancy.data = NULL;
+  encoder->occupancy.blocks_high = NULL;
+  encoder->occupancy.frame_count = 0;
+  encoder->occupancy.blocks_wide = 0;
+  if (cfg->occupancy_path) {
+    FILE *f = fopen(cfg->occupancy_path, "rb");
+    if (!f) {
+      fprintf(stderr, "Could not open occupancy file: %s\n", cfg->occupancy_path);
+      goto init_failed;
+    }
+
+    uint32_t frame_count = 0, blocks_wide = 0;
+    if (fread(&frame_count, sizeof(uint32_t), 1, f) != 1 ||
+        fread(&blocks_wide,  sizeof(uint32_t), 1, f) != 1) {
+      fprintf(stderr, "Failed to read occupancy header.\n");
+      fclose(f);
+      goto init_failed;
+    }
+    encoder->occupancy.frame_count = frame_count;
+    encoder->occupancy.blocks_wide  = blocks_wide;
+
+    // File format (interleaved): [blocksHigh_0][blockData_0][blocksHigh_1][blockData_1]...
+    // Read entire file into memory first, then parse
+    fseek(f, 0, SEEK_END);
+    long file_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    uint8_t *raw = malloc(file_size);
+    if (!raw || fread(raw, 1, file_size, f) != (size_t)file_size) {
+      fprintf(stderr, "Failed to read occupancy file.\n");
+      free(raw);
+      fclose(f);
+      goto init_failed;
+    }
+    fclose(f);
+
+    encoder->occupancy.blocks_high = calloc(frame_count, sizeof(uint32_t));
+    if (!encoder->occupancy.blocks_high) {
+      fprintf(stderr, "Failed to allocate occupancy blocks_high.\n");
+      free(raw);
+      goto init_failed;
+    }
+
+    // Parse: read each entry's blocks_high then skip its data
+    uint8_t *ptr = raw + 8; // skip header (frameCount, blocksWide)
+    uint32_t total_blocks = 0;
+    for (uint32_t i = 0; i < frame_count; i++) {
+      memcpy(&encoder->occupancy.blocks_high[i], ptr, sizeof(uint32_t));
+      ptr += sizeof(uint32_t);
+      uint32_t entry_bytes = blocks_wide * encoder->occupancy.blocks_high[i];
+      total_blocks += entry_bytes;
+      ptr += entry_bytes;
+    }
+
+    // Second pass: copy all block data contiguously
+    encoder->occupancy.data = malloc(total_blocks);
+    if (!encoder->occupancy.data) {
+      fprintf(stderr, "Failed to allocate occupancy data.\n");
+      free(raw);
+      goto init_failed;
+    }
+
+    ptr = raw + 8; // reset to start of entries
+    uint32_t offset = 0;
+    for (uint32_t i = 0; i < frame_count; i++) {
+      ptr += sizeof(uint32_t); // skip blocks_high
+      uint32_t entry_bytes = blocks_wide * encoder->occupancy.blocks_high[i];
+      memcpy(encoder->occupancy.data + offset, ptr, entry_bytes);
+      ptr += entry_bytes;
+      offset += entry_bytes;
+    }
+    free(raw);
   }
 
   if (cfg->fastrd_sampling_on || cfg->fastrd_accuracy_check_on) {
@@ -654,6 +730,9 @@ void kvz_encoder_control_free(encoder_control_t *const encoder)
   if (encoder->roi_file) {
     fclose(encoder->roi_file);
   }
+
+  FREE_POINTER(encoder->occupancy.data);
+  FREE_POINTER(encoder->occupancy.blocks_high);
 
   kvz_free_rc_data(encoder->rc_data);
 

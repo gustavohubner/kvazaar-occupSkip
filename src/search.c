@@ -685,6 +685,47 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
   pu_depth_inter.min = ctrl->cfg.pu_depth_inter.min[gop_layer] >= 0 ? ctrl->cfg.pu_depth_inter.min[gop_layer] : ctrl->cfg.pu_depth_inter.min[0];
   pu_depth_inter.max = ctrl->cfg.pu_depth_inter.max[gop_layer] >= 0 ? ctrl->cfg.pu_depth_inter.max[gop_layer] : ctrl->cfg.pu_depth_inter.max[0];
 
+  // ghrehbein - logica do bin de ocupação, detecta se o bloco é ocupado, se vazio occ_empty = 1, se ocupado occ_empty = 0. 
+  int occ_empty = 0;
+  if (ctrl->occupancy.data && ctrl->occupancy.frame_count > 0 &&
+      state->frame && x + cu_width <= frame->width && y + cu_width <= frame->height)
+  {
+    uint32_t occ_x = x >> 3;
+    uint32_t occ_y = y >> 3;
+    int occ_count = cu_width >> 3;
+
+    // printf("pos %4d, %4d, cu width %d  occ_count: %d\n", x, y, cu_width, occ_count);
+
+    uint32_t frame_idx = state->frame->num % ctrl->occupancy.frame_count;
+    uint32_t base = 0;
+    // for (uint32_t i = 0; i < frame_idx; i++)
+    //     base += ctrl->occupancy.blocks_wide * ctrl->occupancy.blocks_high[i];
+
+    base = frame_idx * ctrl->occupancy.blocks_wide * ctrl->occupancy.blocks_high[frame_idx];
+
+    occ_empty = 1;
+    for (int by = 0; by < occ_count && occ_empty; by++){
+        for (int bx = 0; bx < occ_count && occ_empty; bx++){
+
+          if (ctrl->occupancy.data[base +(occ_y + by) * ctrl->occupancy.blocks_wide +(occ_x + bx)])
+             occ_empty = 0;
+        }
+    }
+  
+
+    if (occ_empty) {
+      //GHREHBEIN: força 64x64 ou profundidade atual se não ocupada.
+      pu_depth_intra.min = depth;
+      pu_depth_intra.max = depth;
+      pu_depth_inter.min = depth;
+      pu_depth_inter.max = depth;
+      
+      // //GHREHBEIN: só permite um nivel de CTU
+      // pu_depth_intra.max = pu_depth_intra.min;
+      // pu_depth_inter.max = pu_depth_inter.min;
+    }
+  }
+
   cur_cu = LCU_GET_CU_AT_PX(lcu, x_local, y_local);
   // Assign correct depth
   cur_cu->depth = depth > MAX_DEPTH ? MAX_DEPTH : depth;
@@ -724,8 +765,8 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
         inter_bitcost = mode_bitcost;
         cur_cu->type = CU_INTER;
       }
-
-      if (!(ctrl->cfg.early_skip && cur_cu->skipped)) {
+      // GHREHBEIN: Skip amp and smp if not occupied
+      if (!(ctrl->cfg.early_skip && cur_cu->skipped) && !occ_empty) {
         // Try SMP and AMP partitioning.
         static const part_mode_t mp_modes[] = {
           // SMP
@@ -890,7 +931,7 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
         cur_cu);
     }
     else {
-      // Intra 4�4 PUs
+      // Intra 4�4 PUs
       if (state->frame->slicetype != KVZ_SLICE_I) {
         cabac_ctx_t* ctx = &(cabac->ctx.cu_pred_mode_model);
         CABAC_FBITS_UPDATE(cabac, ctx, 1, bits, "pred_mode_flag");
@@ -929,10 +970,11 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
   bool can_split_cu =
     // If the CU is partially outside the frame, we need to split it even
     // if pu_depth_intra and pu_depth_inter would not permit it.
-    cur_cu->type == CU_NOTSET ||
+    (cur_cu->type == CU_NOTSET ||
     (depth < pu_depth_intra.max && !(state->encoder_control->cfg.force_inter&& state->frame->slicetype != KVZ_SLICE_I)) ||
     (state->frame->slicetype != KVZ_SLICE_I &&
-      depth < pu_depth_inter.max);
+      depth < pu_depth_inter.max)) && !occ_empty;
+      // GHREHBEIN: Don't split if occupancy is empty
 
   // Recursively split all the way to max search depth.
   if (can_split_cu) {

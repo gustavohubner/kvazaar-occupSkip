@@ -189,7 +189,7 @@ int kvz_config_init(kvz_config *cfg)
   cfg->intra_chroma_search = 0;
   cfg->fast_bipred = 1;
 
-  cfg->enable_logging_output = 1;
+  cfg->occupancy_path = NULL;
 
   return 1;
 }
@@ -205,6 +205,7 @@ int kvz_config_destroy(kvz_config *cfg)
     FREE_POINTER(cfg->slice_addresses_in_ts);
     FREE_POINTER(cfg->optional_key);
     FREE_POINTER(cfg->fastrd_learning_outdir_fn);
+    FREE_POINTER(cfg->occupancy_path);
   }
   free(cfg);
 
@@ -1279,6 +1280,15 @@ int kvz_config_parse(kvz_config *cfg, const char *name, const char *value)
       bool unknown_format = !parse_enum(maybe_extension, format_names, &format);
       cfg->roi.format = unknown_format ? KVZ_ROI_TXT : formats[format];
     }
+  }
+  else if OPT("occupancy") {
+    char *occ_path = strdup(value);
+    if (!occ_path) {
+      fprintf(stderr, "Failed to allocate memory for occupancy file path.\n");
+      return 0;
+    }
+    FREE_POINTER(cfg->occupancy_path);
+    cfg->occupancy_path = occ_path;
   }
   else if OPT("set-qp-in-cu") {
     cfg->set_qp_in_cu = (bool)atobool(value);
