@@ -696,7 +696,7 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
 
     // printf("pos %4d, %4d, cu width %d  occ_count: %d\n", x, y, cu_width, occ_count);
 
-    uint32_t frame_idx = state->frame->num % ctrl->occupancy.frame_count;
+    uint32_t frame_idx = state->frame->poc % ctrl->occupancy.frame_count;
     uint32_t base = 0;
     // for (uint32_t i = 0; i < frame_idx; i++)
     //     base += ctrl->occupancy.blocks_wide * ctrl->occupancy.blocks_high[i];
@@ -719,7 +719,7 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
       pu_depth_intra.max = depth;
       pu_depth_inter.min = depth;
       pu_depth_inter.max = depth;
-      
+
       // //GHREHBEIN: só permite um nivel de CTU
       // pu_depth_intra.max = pu_depth_intra.min;
       // pu_depth_inter.max = pu_depth_inter.min;
