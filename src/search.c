@@ -479,7 +479,7 @@ static double cu_rd_cost_tr_split_accurate(const encoder_state_t* const state,
     } 
     if(tr_cu->depth == depth || cbf_is_set(pred_cu->cbf, depth - 1, COLOR_V)) {
       CABAC_FBITS_UPDATE(cabac, &(cabac->ctx.qt_cbf_model_chroma[depth - tr_cu->depth]), cb_flag_v, tr_tree_bits, "cbf_cr");
-    } 
+    }
   }
 
   if (tr_depth > 0) {
@@ -687,6 +687,11 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
 
   // ghrehbein - logica do bin de ocupação, detecta se o bloco é ocupado, se vazio occ_empty = 1, se ocupado occ_empty = 0. 
   int occ_empty = 0;
+  // GHREHBEIN: profundidade alvo dos CUs não ocupados. Começa na profundidade
+  // atual e só avança até --unoccup-depth, então um CU vazio nunca é testado
+  // mais raso que o alvo, e um CU vazio que já está mais fundo que o alvo
+  // (filho de um CU ocupado) congela onde está.
+  int occ_target = depth;
   if (ctrl->occupancy.data && ctrl->occupancy.frame_count > 0 &&
       state->frame && x + cu_width <= frame->width && y + cu_width <= frame->height)
   {
@@ -696,7 +701,14 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
 
     // printf("pos %4d, %4d, cu width %d  occ_count: %d\n", x, y, cu_width, occ_count);
 
-    uint32_t frame_idx = state->frame->poc % ctrl->occupancy.frame_count;
+    // GHREHBEIN: group*period + poc. O poc ja e o indice dentro do periodo
+    // (com --period 2 o kvazaar define poc = num % 2), entao nao se subtrai
+    // group*period: isso zerava o indice e so as entradas 0 e 1 eram lidas.
+    const int32_t period  = ctrl->cfg.intra_period > 0 ? ctrl->cfg.intra_period : 1;
+    const int32_t group   = state->frame->num / period;
+    const int32_t poc_in  = state->frame->poc;
+    const int32_t grouped = group * period + poc_in;
+    uint32_t frame_idx = (uint32_t)grouped % ctrl->occupancy.frame_count;
     uint32_t base = 0;
     // for (uint32_t i = 0; i < frame_idx; i++)
     //     base += ctrl->occupancy.blocks_wide * ctrl->occupancy.blocks_high[i];
@@ -714,11 +726,19 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
   
 
     if (occ_empty) {
-      //GHREHBEIN: força 64x64 ou profundidade atual se não ocupada.
-      pu_depth_intra.min = depth;
-      pu_depth_intra.max = depth;
-      pu_depth_inter.min = depth;
-      pu_depth_inter.max = depth;
+      //GHREHBEIN: força a profundidade alvo (--unoccup-depth) ou a profundidade
+      //atual, o que for mais fundo, para CUs não ocupados.
+      //Note que as exceções de borda de quadro em can_use_inter/can_use_intra
+      //não podem valer aqui: occ_empty só é calculado para CUs inteiramente
+      //dentro do quadro, e nestas condições a exceção exige um CU mais raso.
+      if (ctrl->cfg.unoccup_depth > occ_target) {
+        occ_target = ctrl->cfg.unoccup_depth;
+      }
+
+      pu_depth_intra.min = occ_target;
+      pu_depth_intra.max = occ_target;
+      pu_depth_inter.min = occ_target;
+      pu_depth_inter.max = occ_target;
 
       // //GHREHBEIN: só permite um nivel de CTU
       // pu_depth_intra.max = pu_depth_intra.min;
@@ -967,14 +987,16 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
     cabac->update = 0;
   } 
 
+  // GHREHBEIN: CU não ocupado não é dividido ao chegar (ou passar) da
+  // profundidade alvo; abaixo dela ele só desce, sem ser testado.
+  const bool occ_freeze = occ_empty && depth >= occ_target;
   bool can_split_cu =
     // If the CU is partially outside the frame, we need to split it even
     // if pu_depth_intra and pu_depth_inter would not permit it.
     (cur_cu->type == CU_NOTSET ||
     (depth < pu_depth_intra.max && !(state->encoder_control->cfg.force_inter&& state->frame->slicetype != KVZ_SLICE_I)) ||
     (state->frame->slicetype != KVZ_SLICE_I &&
-      depth < pu_depth_inter.max)) && !occ_empty;
-      // GHREHBEIN: Don't split if occupancy is empty
+      depth < pu_depth_inter.max)) && !occ_freeze;
 
   // Recursively split all the way to max search depth.
   if (can_split_cu) {
@@ -1021,9 +1043,15 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
     // of the top left CU from the next depth. This should ensure that 64x64
     // gets used, at least in the most obvious cases, while avoiding any
     // searching.
+    // GHREHBEIN: quando a subdivisão foi forçada pela ocupação (CU não ocupado
+    // mais raso que --unoccup-depth), os filhos não podem ser combinados de
+    // volta num único CU, senão o CU volta a ser 64x64 e o --unoccup-depth
+    // não tem efeito visível no bitstream.
+    const bool occ_forced_split = occ_empty && depth < occ_target;
     if (cur_cu->type == CU_NOTSET && depth < MAX_PU_DEPTH
         && x + cu_width <= frame->width && y + cu_width <= frame->height 
-        && state->encoder_control->cfg.combine_intra_cus)
+        && state->encoder_control->cfg.combine_intra_cus
+        && !occ_forced_split)
     {
 
       cu_info_t *cu_d1 = LCU_GET_CU_AT_PX(&work_tree[depth + 1], x_local, y_local);

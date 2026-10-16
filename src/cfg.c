@@ -190,6 +190,7 @@ int kvz_config_init(kvz_config *cfg)
   cfg->fast_bipred = 1;
 
   cfg->occupancy_path = NULL;
+  cfg->unoccup_depth = 0;
 
   return 1;
 }
@@ -1289,6 +1290,15 @@ int kvz_config_parse(kvz_config *cfg, const char *name, const char *value)
     }
     FREE_POINTER(cfg->occupancy_path);
     cfg->occupancy_path = occ_path;
+  }
+  else if OPT("unoccup-depth") {
+    const int depth = atoi(value);
+    if (depth < 0 || depth > MAX_DEPTH) {
+      fprintf(stderr, "Invalid --unoccup-depth '%s': expected 0 to %d.\n",
+              value, MAX_DEPTH);
+      return 0;
+    }
+    cfg->unoccup_depth = (uint8_t)depth;
   }
   else if OPT("set-qp-in-cu") {
     cfg->set_qp_in_cu = (bool)atobool(value);

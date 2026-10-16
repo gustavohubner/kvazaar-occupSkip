@@ -179,6 +179,7 @@ static const struct option long_options[] = {
   { "enable-logging",           no_argument, NULL, 0 },
   { "no-enable-logging",        no_argument, NULL, 0 },
   { "occupancy",                required_argument, NULL, 0 },
+  { "unoccup-depth",             required_argument, NULL, 0 },
   {0, 0, 0, 0}
 };
 
