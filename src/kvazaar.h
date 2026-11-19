@@ -499,6 +499,11 @@ typedef struct kvz_config
 
   uint8_t unoccup_depth; /*!< \brief Target depth for fully unoccupied CUs
                                 (0 = 64x64 .. 3 = 8x8). Default: 0. */
+
+  int8_t force_high_unoccup_qp; /*!< \brief Delta QP added to fully unoccupied
+                                LCUs, from the occupancy .bin, instead of an
+                                external ROI file. 0 = disabled, +25 = max.
+                                Occupied LCUs are untouched. Default: 0. */
 } kvz_config;
 
 /**

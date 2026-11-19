@@ -191,6 +191,7 @@ int kvz_config_init(kvz_config *cfg)
 
   cfg->occupancy_path = NULL;
   cfg->unoccup_depth = 0;
+  cfg->force_high_unoccup_qp = 0;
 
   return 1;
 }
@@ -1299,6 +1300,15 @@ int kvz_config_parse(kvz_config *cfg, const char *name, const char *value)
       return 0;
     }
     cfg->unoccup_depth = (uint8_t)depth;
+  }
+  else if OPT("force-high-unoccup-qp") {
+    const int qp = atoi(value);
+    if (qp < 0 || qp > KVZ_QP_DELTA_MAX) {
+      fprintf(stderr, "Invalid --force-high-unoccup-qp '%s': expected 0 to %d.\n",
+              value, KVZ_QP_DELTA_MAX);
+      return 0;
+    }
+    cfg->force_high_unoccup_qp = (int8_t)qp;
   }
   else if OPT("set-qp-in-cu") {
     cfg->set_qp_in_cu = (bool)atobool(value);

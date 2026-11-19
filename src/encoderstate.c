@@ -684,6 +684,7 @@ static void encoder_state_worker_encode_lcu(void * opaque)
   //Now write data to bitstream (required to have a correct CABAC state)
   const uint64_t existing_bits = kvz_bitstream_tell(&state->stream);
 
+
   //Encode SAO
   state->cabac.update = 1;
   if (encoder->cfg.sao_type) {
@@ -1435,7 +1436,7 @@ static void encoder_state_init_new_frame(encoder_state_t * const state, kvz_pict
   if (cfg->roi.file_path) {
     next_roi_frame_from_file(frame, state->encoder_control->roi_file, cfg->roi.format);
   }
-  
+
   if (cfg->erp_aqp) {
     init_erp_aqp_roi(state->encoder_control, state->tile->frame->source);
   }
@@ -1526,7 +1527,8 @@ static void encoder_state_init_new_frame(encoder_state_t * const state, kvz_pict
   }
   // Variance adaptive quantization - END
 
-  if (cfg->target_bitrate > 0 || frame->roi.roi_array || cfg->set_qp_in_cu || cfg->vaq) {
+  if (cfg->target_bitrate > 0 || frame->roi.roi_array ||
+      cfg->force_high_unoccup_qp > 0 || cfg->set_qp_in_cu || cfg->vaq) {
     state->frame->max_qp_delta_depth = 0;
   } else {
     state->frame->max_qp_delta_depth = -1;
@@ -1580,6 +1582,65 @@ static void encoder_state_init_new_frame(encoder_state_t * const state, kvz_pict
     state->frame->poc = state->frame->num % cfg->intra_period;
   } else {
     state->frame->poc = state->frame->num;
+  }
+
+
+  // GHREHBEIN: --force-high-unoccup-qp. Derives the delta-QP map from the
+  // occupancy .bin instead of an external ROI file: fully unoccupied LCUs get
+  // +cfg->force_high_unoccup_qp, occupied LCUs get 0 and are untouched.
+  // Must run after the POC assignment above: search.c derives the occupancy
+  // entry from the final POC (group * period + poc), so building the map
+  // earlier would index the .bin with the provisional POC from
+  // kvz_encoder_prepare and apply the delta to the wrong atlas frame.
+  // 64x64 LCU granularity, OR-reduced from the 8x8 occupancy blocks.
+  if (cfg->force_high_unoccup_qp > 0 && state->encoder_control->occupancy.data &&
+      state->encoder_control->occupancy.frame_count > 0) {
+    const encoder_control_t *enc = state->encoder_control;
+    const uint32_t bw = enc->occupancy.blocks_wide;
+    const uint32_t frame_count = enc->occupancy.frame_count;
+    // GHREHBEIN: mesma ordenacao do depth forcing em search.c
+    // (group * period + poc), para que o mapa use a mesma entrada do .bin
+    // que o depth forcing usaria para este frame.
+    const int32_t period = enc->cfg.intra_period > 0 ? enc->cfg.intra_period : 1;
+    const int32_t group = state->frame->num / period;
+    const uint32_t frame_idx = ((uint32_t)(group * period + state->frame->poc)) % frame_count;
+    // GHREHBEIN: debug (KVZ_DEBUG_OCC_QP=1) -- occupancy entry used by the map.
+    if (getenv("KVZ_DEBUG_OCC_QP")) {
+      fprintf(stderr, "occ_qp: num=%d poc_at_map=%d idx=%u/%u\n",
+              state->frame->num, state->frame->poc, frame_idx, frame_count);
+    }
+    const uint32_t bh = enc->occupancy.blocks_high[frame_idx];
+    const uint8_t *data = enc->occupancy.data +
+      frame_idx * bw * enc->occupancy.blocks_high[frame_idx];
+
+    const int32_t lcu_w = enc->in.width_in_lcu;
+    const int32_t lcu_h = enc->in.height_in_lcu;
+    int8_t *dqp = calloc((size_t)lcu_w * lcu_h, sizeof(int8_t));
+    if (!dqp) {
+      fprintf(stderr, "Failed to allocate occupancy QP map.\n");
+    } else {
+      const int32_t qp_delta = cfg->force_high_unoccup_qp;
+      for (int32_t y = 0; y < lcu_h; y++) {
+        const int32_t by0 = (int32_t)((uint32_t)y * LCU_WIDTH / 8);
+        const int32_t by1 = (int32_t)((uint32_t)(y + 1) * LCU_WIDTH / 8);
+        for (int32_t x = 0; x < lcu_w; x++) {
+          const int32_t bx0 = (int32_t)((uint32_t)x * LCU_WIDTH / 8);
+          const int32_t bx1 = (int32_t)((uint32_t)(x + 1) * LCU_WIDTH / 8);
+          // OR-reduce: any occupied 8x8 block makes the LCU occupied
+          uint8_t any = 0;
+          for (int32_t by = by0; by < by1 && by < (int32_t)bh && !any; by++) {
+            for (int32_t bx = bx0; bx < bx1 && bx < (int32_t)bw && !any; bx++) {
+              if (data[by * bw + bx]) any = 1;
+            }
+          }
+          dqp[x + y * lcu_w] = any ? 0 : (int8_t)qp_delta;
+        }
+      }
+      frame->roi.width = lcu_w;
+      frame->roi.height = lcu_h;
+      FREE_POINTER(frame->roi.roi_array);
+      frame->roi.roi_array = dqp;
+    }
   }
 
   // Check whether the frame is a keyframe or not.
@@ -1640,7 +1701,7 @@ static void encoder_state_init_new_frame(encoder_state_t * const state, kvz_pict
     default:
       assert(0);
   }
- 
+
   encoder_state_init_children(state);
 }
 
