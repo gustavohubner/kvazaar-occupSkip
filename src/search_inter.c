@@ -1610,7 +1610,8 @@ static void search_pu_inter(encoder_state_t * const state,
   lcu_t *lcu,
   unit_stats_map_t *amvp,
   unit_stats_map_t *merge,
-  inter_search_info_t *info)
+  inter_search_info_t *info,
+  bool occ_empty)
 {
   const kvz_config *cfg = &state->encoder_control->cfg;
   const videoframe_t * const frame = state->tile->frame;
@@ -1785,6 +1786,70 @@ static void search_pu_inter(encoder_state_t * const state,
         }
       }
     }
+  }
+
+  // GHREHBEIN: --occupancy-skip. Force a skip CU on a fully unoccupied CU:
+  // one skip_flag plus one merge_idx for the whole block instead of the merge
+  // analysis and the AMVP search. Only reachable outside I slices, because
+  // can_use_inter requires slicetype != KVZ_SLICE_I; in I slices an empty CU
+  // keeps the normal intra search. Independent of --unoccup-depth and
+  // --force-high-unoccup-qp: occ_empty already carries both the occupancy
+  // lookup (CU granularity, same .bin entry as the other two options) and the
+  // cfg flag.
+  if (occ_empty && cfg->occupancy_skip && part_mode == SIZE_2Nx2N &&
+      !cfg->lossless && i_pu == 0) {
+    // Only a candidate whose every active prediction is a zero MV is safe.
+    // The decoder derives the same merge list and picks the same index, and a
+    // zero MV keeps the reconstruction identical to the prediction, so the
+    // skip cannot drag motion from the (temporally incoherent) empty region.
+    int zero_idx = -1;
+    for (int mi = 0; mi < info->num_merge_cand; ++mi) {
+      const inter_merge_cand_t *c = &info->merge_cand[mi];
+      if (c->dir == 0) continue;
+      if ((c->dir & 1) && (c->mv[0][0] != 0 || c->mv[0][1] != 0)) continue;
+      if ((c->dir & 2) && (c->mv[1][0] != 0 || c->mv[1][1] != 0)) continue;
+      zero_idx = mi;
+      break;
+    }
+    if (zero_idx >= 0 && fracmv_within_tile(info, 0, 0)) {
+      const inter_merge_cand_t *c = &info->merge_cand[zero_idx];
+      cur_pu->type      = CU_INTER;
+      cur_pu->part_size = SIZE_2Nx2N;
+      cur_pu->skipped   = 1;
+      cur_pu->merged    = 0;
+      cur_pu->cbf       = 0;
+      cur_pu->qp        = state->qp;
+      cur_pu->merge_idx = zero_idx;
+      cur_pu->inter.mv_dir    = c->dir;
+      cur_pu->inter.mv_ref[0] = c->ref[0];
+      cur_pu->inter.mv_ref[1] = c->ref[1];
+      cur_pu->inter.mv[0][0]  = c->mv[0][0];
+      cur_pu->inter.mv[0][1]  = c->mv[0][1];
+      cur_pu->inter.mv[1][0]  = c->mv[1][0];
+      cur_pu->inter.mv[1][1]  = c->mv[1][1];
+
+      // search_cu skips its own reconstruction for skipped CUs when
+      // early_skip is on, so reconstruct here.
+      kvz_lcu_fill_trdepth(lcu, x, y, depth, MAX(1, depth));
+      kvz_inter_recon_cu(state, lcu, x, y, width, true, has_chroma);
+
+      const int skip_ctx = kvz_get_skip_context(x, y, lcu, NULL);
+      double skip_bits  = CTX_ENTROPY_FBITS(
+          &state->search_cabac.ctx.cu_skip_flag_model[skip_ctx], 1);
+      skip_bits += CTX_ENTROPY_FBITS(
+          &state->search_cabac.ctx.cu_merge_idx_ext_model, zero_idx != 0);
+      skip_bits += zero_idx;
+
+      merge->unit[0] = *cur_pu;
+      merge->keys[0] = 0;
+      merge->bits[0] = skip_bits;
+      merge->cost[0] = skip_bits * state->lambda;
+      merge->size    = 1;
+      return;
+    }
+    // No zero-MV candidate: fall through to the normal search. Returning
+    // undecided here would strand the CU at CU_NOTSET, since a fully
+    // unoccupied CU is never allowed to split.
   }
 
   // AMVP search starts here
@@ -2174,6 +2239,7 @@ void kvz_cu_cost_inter_rd2(encoder_state_t * const state,
 void kvz_search_cu_inter(encoder_state_t * const state,
                          int x, int y, int depth,
                          lcu_t *lcu,
+                         bool occ_empty,
                          double   *inter_cost,
                          double* inter_bitcost)
 {
@@ -2193,7 +2259,8 @@ void kvz_search_cu_inter(encoder_state_t * const state,
                   lcu,
                   amvp,
                   &merge,
-                  &info);
+                  &info,
+                  occ_empty);
 
   // Early Skip CU decision
   if (merge.size == 1 && merge.unit[0].skipped) {
@@ -2315,7 +2382,8 @@ void kvz_search_cu_smp(encoder_state_t* const state,
     double cost    = MAX_DOUBLE;
     double bitcost = MAX_INT;
 
-    search_pu_inter(state, x, y, depth, part_mode, i, lcu, amvp, &merge, &info);
+    search_pu_inter(state, x, y, depth, part_mode, i, lcu, amvp, &merge, &info,
+                    false);
 
     cu_info_t* best_inter_pu = NULL;
 

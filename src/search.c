@@ -686,6 +686,13 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
   pu_depth_inter.max = ctrl->cfg.pu_depth_inter.max[gop_layer] >= 0 ? ctrl->cfg.pu_depth_inter.max[gop_layer] : ctrl->cfg.pu_depth_inter.max[0];
 
   // ghrehbein - logica do bin de ocupação, detecta se o bloco é ocupado, se vazio occ_empty = 1, se ocupado occ_empty = 0. 
+  // GHREHBEIN: a consulta é feita em coordenadas absolutas de pixel do frame
+  // (x, y vêm de kvz_search_lcu, não são locais ao LCU), com granularidade de
+  // CU — um CU só é "vazio" se todos os seus blocos 8x8 forem 0. É a mesma
+  // entrada do .bin (group * intra_period + poc) e o mesmo deslocamento base
+  // usados por --force-high-unoccup-qp em encoderstate.c, que apenas agrega a
+  // mesma máscara em LCUs 64x64. Manter as duas fórmulas idênticas é
+  // obrigatório; --occupancy-skip consome este mesmo occ_empty.
   int occ_empty = 0;
   // GHREHBEIN: profundidade alvo dos CUs não ocupados. Começa na profundidade
   // atual e só avança até --unoccup-depth, então um CU vazio nunca é testado
@@ -779,6 +786,7 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
                           x, y,
                           depth,
                           lcu,
+                          occ_empty && ctrl->cfg.occupancy_skip,
                           &mode_cost, &mode_bitcost);
       if (mode_cost < cost) {
         cost = mode_cost;
@@ -821,7 +829,12 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
     bool skip_intra = (state->encoder_control->cfg.rdo == 0
                       && cur_cu->type != CU_NOTSET
                       && cost / (cu_width * cu_width) < INTRA_THRESHOLD)
-                      || (ctrl->cfg.early_skip && cur_cu->skipped);
+                      || (ctrl->cfg.early_skip && cur_cu->skipped)
+                      // GHREHBEIN: --occupancy-skip. The forced skip decision
+                      // on an empty CU must win over the intra search, which
+                      // would otherwise overwrite it.
+                      || (occ_empty && ctrl->cfg.occupancy_skip &&
+                          cur_cu->skipped);
 
     int32_t cu_width_intra_min = LCU_WIDTH >> pu_depth_intra.max;
     bool can_use_intra =

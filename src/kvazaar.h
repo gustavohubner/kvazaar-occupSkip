@@ -497,6 +497,11 @@ typedef struct kvz_config
 
   char *occupancy_path; /*!< \brief Path to occupancy .bin file for guided CU skip */
 
+  uint8_t occupancy_skip; /*!< \brief Force merge/skip coding on CUs that are
+                                fully empty in the occupancy map.
+                                Independent of --unoccup-depth and
+                                --force-high-unoccup-qp. Default: off. */
+
   uint8_t unoccup_depth; /*!< \brief Target depth for fully unoccupied CUs
                                 (0 = 64x64 .. 3 = 8x8). Default: 0. */
 

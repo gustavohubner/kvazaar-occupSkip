@@ -76,6 +76,7 @@ typedef double kvz_mvd_cost_func(const encoder_state_t *state,
 void kvz_search_cu_inter(encoder_state_t * const state,
                          int x, int y, int depth,
                          lcu_t *lcu,
+                         bool occ_empty,
                          double *inter_cost,
                          double* inter_bitcost);
 

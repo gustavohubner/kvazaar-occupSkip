@@ -190,6 +190,7 @@ int kvz_config_init(kvz_config *cfg)
   cfg->fast_bipred = 1;
 
   cfg->occupancy_path = NULL;
+  cfg->occupancy_skip = 0;
   cfg->unoccup_depth = 0;
   cfg->force_high_unoccup_qp = 0;
 
@@ -1291,6 +1292,9 @@ int kvz_config_parse(kvz_config *cfg, const char *name, const char *value)
     }
     FREE_POINTER(cfg->occupancy_path);
     cfg->occupancy_path = occ_path;
+  }
+  else if OPT("occupancy-skip") {
+    cfg->occupancy_skip = (bool)atobool(value);
   }
   else if OPT("unoccup-depth") {
     const int depth = atoi(value);
