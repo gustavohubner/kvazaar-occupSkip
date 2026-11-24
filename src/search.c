@@ -694,12 +694,17 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
   // mesma máscara em LCUs 64x64. Manter as duas fórmulas idênticas é
   // obrigatório; --occupancy-skip consome este mesmo occ_empty.
   int occ_empty = 0;
-  // GHREHBEIN: profundidade alvo dos CUs não ocupados. Começa na profundidade
+  // GHREHBEIN: --unoccup-depth ausente (== -1) significa que --occupancy só
+  // carrega o .bin e mantém a máscara em memória: nada é forçado. Só com a
+  // flag passada (0..3) o depth forcing entra, e aí 0 = força 64x64.
+  const bool occ_force_depth = ctrl->cfg.unoccup_depth >= 0;
+  // profundidade alvo dos CUs não ocupados. Começa na profundidade
   // atual e só avança até --unoccup-depth, então um CU vazio nunca é testado
   // mais raso que o alvo, e um CU vazio que já está mais fundo que o alvo
   // (filho de um CU ocupado) congela onde está.
   int occ_target = depth;
-  if (ctrl->occupancy.data && ctrl->occupancy.frame_count > 0 &&
+  if ((occ_force_depth || ctrl->cfg.occupancy_skip) &&
+      ctrl->occupancy.data && ctrl->occupancy.frame_count > 0 &&
       state->frame && x + cu_width <= frame->width && y + cu_width <= frame->height)
   {
     uint32_t occ_x = x >> 3;
@@ -732,7 +737,7 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
     }
   
 
-    if (occ_empty) {
+    if (occ_empty && occ_force_depth) {
       //GHREHBEIN: força a profundidade alvo (--unoccup-depth) ou a profundidade
       //atual, o que for mais fundo, para CUs não ocupados.
       //Note que as exceções de borda de quadro em can_use_inter/can_use_intra
@@ -793,8 +798,11 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
         inter_bitcost = mode_bitcost;
         cur_cu->type = CU_INTER;
       }
-      // GHREHBEIN: Skip amp and smp if not occupied
-      if (!(ctrl->cfg.early_skip && cur_cu->skipped) && !occ_empty) {
+      // GHREHBEIN: Skip amp and smp if not occupied (only when the depth
+      // forcing is on; without --unoccup-depth --occupancy must not change
+      // the search at all).
+      if (!(ctrl->cfg.early_skip && cur_cu->skipped) &&
+          !(occ_force_depth && occ_empty)) {
         // Try SMP and AMP partitioning.
         static const part_mode_t mp_modes[] = {
           // SMP
@@ -1002,7 +1010,8 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
 
   // GHREHBEIN: CU não ocupado não é dividido ao chegar (ou passar) da
   // profundidade alvo; abaixo dela ele só desce, sem ser testado.
-  const bool occ_freeze = occ_empty && depth >= occ_target;
+  const bool occ_freeze = occ_force_depth && occ_empty &&
+                          depth >= occ_target;
   bool can_split_cu =
     // If the CU is partially outside the frame, we need to split it even
     // if pu_depth_intra and pu_depth_inter would not permit it.
@@ -1060,7 +1069,8 @@ static double search_cu(encoder_state_t * const state, int x, int y, int depth, 
     // mais raso que --unoccup-depth), os filhos não podem ser combinados de
     // volta num único CU, senão o CU volta a ser 64x64 e o --unoccup-depth
     // não tem efeito visível no bitstream.
-    const bool occ_forced_split = occ_empty && depth < occ_target;
+    const bool occ_forced_split = occ_force_depth && occ_empty &&
+                                  depth < occ_target;
     if (cur_cu->type == CU_NOTSET && depth < MAX_PU_DEPTH
         && x + cu_width <= frame->width && y + cu_width <= frame->height 
         && state->encoder_control->cfg.combine_intra_cus

@@ -191,7 +191,7 @@ int kvz_config_init(kvz_config *cfg)
 
   cfg->occupancy_path = NULL;
   cfg->occupancy_skip = 0;
-  cfg->unoccup_depth = 0;
+  cfg->unoccup_depth = -1;
   cfg->force_high_unoccup_qp = 0;
 
   return 1;
@@ -1303,7 +1303,7 @@ int kvz_config_parse(kvz_config *cfg, const char *name, const char *value)
               value, MAX_DEPTH);
       return 0;
     }
-    cfg->unoccup_depth = (uint8_t)depth;
+    cfg->unoccup_depth = (int8_t)depth;
   }
   else if OPT("force-high-unoccup-qp") {
     const int qp = atoi(value);

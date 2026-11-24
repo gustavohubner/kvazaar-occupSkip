@@ -502,8 +502,10 @@ typedef struct kvz_config
                                 Independent of --unoccup-depth and
                                 --force-high-unoccup-qp. Default: off. */
 
-  uint8_t unoccup_depth; /*!< \brief Target depth for fully unoccupied CUs
-                                (0 = 64x64 .. 3 = 8x8). Default: 0. */
+  int8_t unoccup_depth; /*!< \brief Target depth for fully unoccupied CUs
+                               (0 = 64x64 .. 3 = 8x8). -1 = off: --occupancy
+                               only loads the map, nothing is forced.
+                               Default: -1. */
 
   int8_t force_high_unoccup_qp; /*!< \brief Delta QP added to fully unoccupied
                                 LCUs, from the occupancy .bin, instead of an
