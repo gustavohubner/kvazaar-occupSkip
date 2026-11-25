@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Occupancy skip — resultados interativos</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <h1>Occupancy-guided CU skip</h1>
+    <p class="subtitle" id="subtitle">Carregando dados…</p>
+  </div>
+  <div class="top-right">
+    <span class="badge" id="badge-cells"></span>
+    <span class="badge" id="badge-date"></span>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" aria-label="Filtros">
+    <div class="aside-head">Filtros <button id="reset-all" class="link-btn">resetar</button></div>
+
+    <fieldset>
+      <legend>Configuração do encode</legend>
+      <label>Velocidade</label><div class="seg" id="seg-speed"></div>
+      <label>Modo</label><div class="seg" id="seg-mode"></div>
+      <label>Plano</label><div class="seg" id="seg-plane"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Métrica</legend>
+      <label>Região do PSNR</label><div class="seg" id="seg-region"></div>
+      <label>Eixo X das curvas RD</label><div class="seg" id="seg-xmetric"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Sequências <span class="mini" id="seq-count"></span></legend>
+      <div class="chips" id="seq-chips"></div>
+      <div class="chip-actions">
+        <button class="link-btn" id="seq-all">todas</button>
+        <button class="link-btn" id="seq-none">nenhuma</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Configurações <span class="mini" id="cfg-count"></span></legend>
+      <div class="chips" id="cfg-chips"></div>
+      <div class="chip-actions">
+        <button class="link-btn" id="cfg-all">todas</button>
+        <button class="link-btn" id="cfg-base-depth">base + depth</button>
+        <button class="link-btn" id="cfg-base-qp">base + QP</button>
+        <button class="link-btn" id="cfg-base-skip">base + skip</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Taxas <span class="mini" id="rate-count"></span></legend>
+      <div class="chips" id="rate-chips"></div>
+      <div class="chip-actions">
+        <button class="link-btn" id="rate-all">todas</button>
+        <button class="link-btn" id="rate-none">nenhuma</button>
+      </div>
+      <label class="check"><input type="checkbox" id="rd-labels" checked> rotular r1…r5</label>
+    </fieldset>
+  </aside>
+
+  <main>
+    <nav class="tabs" id="tabs" role="tablist">
+      <button class="tab active" data-tab="rd" role="tab">Curvas RD</button>
+      <button class="tab" data-tab="overview" role="tab">Visão geral</button>
+      <button class="tab" data-tab="tables" role="tab">Tabelas</button>
+      <button class="tab" data-tab="time" role="tab">Tempos</button>
+      <button class="tab" data-tab="about" role="tab">Sobre</button>
+    </nav>
+
+    <!-- ============================ RD ============================ -->
+    <section class="panel active" id="panel-rd">
+      <div class="panel-head">
+        <div>
+          <h2>Curvas taxa–distorção</h2>
+          <p class="hint" id="rd-hint"></p>
+        </div>
+      </div>
+      <div class="chart-card">
+        <svg id="rd-svg" viewBox="0 0 980 560" role="img" aria-label="Curvas RD"></svg>
+      </div>
+      <div class="legend" id="rd-legend"></div>
+      <div class="two-col">
+        <div class="card">
+          <h3>Pontos RD por taxa</h3>
+          <div class="scroll"><table id="rd-points-table" class="data"></table></div>
+        </div>
+        <div class="card">
+          <h3>Delta contra base, por taxa</h3>
+          <div class="scroll"><table id="rd-delta-table" class="data"></table></div>
+          <p class="hint">Bits/tempo: Δ% em relação ao base. PSNR: ΔdB agregado por energia.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================= OVERVIEW ========================= -->
+    <section class="panel" id="panel-overview">
+      <div class="panel-head">
+        <div>
+          <h2>Comparação de todas as configurações</h2>
+          <p class="hint">Cada coluna é uma combinação velocidade / modo / plano. Clique no cabeçalho para abrir aquela curva RD.</p>
+        </div>
+        <label>Métrica
+          <select id="heat-metric">
+            <option value="bits">Δ bits (%)</option>
+            <option value="psnr_occ">Δ PSNR ocupado (dB)</option>
+            <option value="psnr_y">Δ PSNR global (dB)</option>
+            <option value="user">Δ tempo user (%)</option>
+            <option value="wall">Δ tempo wall (%)</option>
+          </select>
+        </label>
+      </div>
+      <div class="card">
+        <h3>Mapa de calor — Δ contra base (média das sequências e taxas selecionadas)</h3>
+        <div class="scroll"><table id="heat-table" class="data heat"></table></div>
+        <p class="hint">Verde = melhor que o base, vermelho = pior. As cores são relativas ao maior valor absoluto da tabela.</p>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <h3>Mapa de compensações</h3>
+          <svg id="scatter-svg" viewBox="0 0 980 480" role="img" aria-label="Compensações bits, PSNR e tempo"></svg>
+          <p class="hint">X = Δbits%, Y = ΔPSNR ocupado (dB). A cor identifica a configuração; o Δtempo user aparece no rótulo de cada ponto.</p>
+        </div>
+        <div class="card">
+          <h3>Leitura rápida</h3>
+          <div id="overview-notes" class="notes"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================= TABLES ========================== -->
+    <section class="panel" id="panel-tables">
+      <div class="panel-head">
+        <div><h2>Tabelas</h2><p class="hint">Todas as colunas são ordenáveis.</p></div>
+        <div class="subtabs" id="table-subtabs">
+          <button class="subtab active" data-sub="agg">Agregados</button>
+          <button class="subtab" data-sub="cells">Células brutas</button>
+        </div>
+      </div>
+
+      <div id="sub-agg">
+        <div class="card">
+          <div class="card-head">
+            <h3>Resumo por configuração</h3>
+            <label>Comparar
+              <select id="agg-compare">
+                <option value="vs_base">contra base</option>
+                <option value="vs_same_depth">dNqp25 contra o dN correspondente</option>
+              </select>
+            </label>
+          </div>
+          <div class="scroll"><table id="agg-table" class="data"></table></div>
+          <button class="btn" id="agg-export">Exportar CSV</button>
+        </div>
+      </div>
+
+      <div id="sub-cells" hidden>
+        <div class="card">
+          <div class="card-head">
+            <h3>Células (uma linha por config × sequência × taxa)</h3>
+            <div class="tools">
+              <input type="search" id="cell-search" placeholder="filtrar texto…">
+              <select id="cell-page-size">
+                <option>50</option><option>100</option><option>250</option><option>1000</option>
+              </select>
+              <button class="btn" id="cells-export">Exportar CSV</button>
+            </div>
+          </div>
+          <div class="scroll"><table id="cells-table" class="data"></table></div>
+          <div class="pager">
+            <button class="btn" id="cells-prev">← anterior</button>
+            <span id="cells-page-info"></span>
+            <button class="btn" id="cells-next">próxima →</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================= TIME ============================ -->
+    <section class="panel" id="panel-time">
+      <div class="panel-head">
+        <div><h2>Tempo de codificação</h2><p class="hint" id="time-hint"></p></div>
+        <div class="tools">
+          <span class="hint">Eixo Y</span>
+          <div class="seg" id="seg-time-ymode"></div>
+          <select id="time-seq"></select>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Delta de tempo por configuração — escala fixa de −50% a +25%</h3>
+        <svg id="time-svg" viewBox="0 0 980 420" role="img" aria-label="Deltas de tempo"></svg>
+        <p class="hint"><b>user</b> = tempo de CPU somado nas threads do encoder; <b>wall</b> = tempo decorrido no relógio. Com multithreading, user costuma ser bem maior que wall.</p>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>Tempo × qualidade e tempo × bitrate</h3>
+          <span class="hint">Uma curva por configuração, r1→r5; base em tracejado.</span>
+        </div>
+        <div class="two-col">
+          <div><svg id="time-quality-svg" viewBox="0 0 620 420" role="img" aria-label="Tempo por qualidade"></svg></div>
+          <div><svg id="time-bitrate-svg" viewBox="0 0 620 420" role="img" aria-label="Tempo por bitrate"></svg></div>
+        </div>
+        <div class="legend" id="time-legend"></div>
+        <p class="hint" id="time-curve-hint"></p>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-head">
+            <h3>Repetições de uma célula</h3>
+            <div class="tools">
+              <select id="rep-cfg"></select>
+              <select id="rep-seq"></select>
+              <select id="rep-rate"></select>
+              <select id="rep-field">
+                <option value="user">user</option>
+                <option value="wall">wall</option>
+              </select>
+            </div>
+          </div>
+          <svg id="rep-svg" viewBox="0 0 560 280" role="img" aria-label="Tempos por repetição"></svg>
+        </div>
+        <div class="card">
+          <h3>Estatísticas da célula</h3>
+          <table id="rep-stats" class="data"></table>
+          <p class="hint">Os 10 encodes de uma célula são byte-idênticos; só o tempo varia.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================= ABOUT =========================== -->
+    <section class="panel" id="panel-about">
+      <div class="panel-head"><div><h2>Metodologia e proveniência</h2></div></div>
+      <div id="about-content"></div>
+    </section>
+  </main>
+</div>
+
+<div id="tooltip" role="tooltip"></div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
