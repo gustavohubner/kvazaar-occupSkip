@@ -735,7 +735,7 @@ function renderRD() {
     if (state.hidden[cfg]) b.className = 'off';
     b.title = cfgLabel(cfg);
     b.innerHTML = '<span class="swatch" style="background:' + COLORS[cfg] +
-      '"></span>' + esc(cfgLabel(cfg));
+      '"></span>' + esc(cfg);
     b.onclick = function () {
       if (state.hidden[cfg]) delete state.hidden[cfg]; else state.hidden[cfg] = true;
       render();
@@ -1346,7 +1346,7 @@ function renderTimeCurves() {
     if (state.hidden[cfg]) b.className = 'off';
     b.title = cfgLabel(cfg);
     b.innerHTML = '<span class="swatch" style="background:' + COLORS[cfg] +
-      '"></span>' + esc(cfgLabel(cfg));
+      '"></span>' + esc(cfg);
     b.onclick = function () {
       if (state.hidden[cfg]) delete state.hidden[cfg]; else state.hidden[cfg] = true;
       render();
