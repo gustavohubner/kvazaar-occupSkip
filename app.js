@@ -70,7 +70,7 @@ var state = {
   heatSort: null, aggSort: null, cellSort: {col: 'seq', dir: 1},
   cellPage: 0, cellSearch: '',
   repCfg: 'skip', repSeq: 'longdress', repRate: 'r4', repField: 'user',
-  timeYMode: 'absolute', timeSeq: 'avg'
+  timeYMode: 'absolute', timeSeq: 'avg', timeField: 'user'
 };
 
 /* --------------------------- utilidades --------------------------- */
@@ -526,6 +526,7 @@ function initControls() {
   makeSeg('seg-time-ymode', ['absolute', 'delta'], 'timeYMode', function (y) {
     return y === 'absolute' ? 'tempo (s)' : 'Δ% vs base';
   });
+  makeSeg('seg-time-field', ['user', 'wall'], 'timeField');
   makeChips('seq-chips', SEQS, 'seqs', false);
   makeChips('cfg-chips', CFGS, 'cfgs', true);
   makeChips('rate-chips', RATES, 'rates', false);
@@ -550,12 +551,12 @@ function initControls() {
   document.getElementById('reset-all').onclick = function () {
     state.speed = 'slow'; state.mode = 'ra'; state.plane = 'geometry';
     state.region = 'occupied_y'; state.xmetric = 'bitrate';
-    state.timeSeq = 'avg'; state.timeYMode = 'absolute';
+    state.timeSeq = 'avg'; state.timeYMode = 'absolute'; state.timeField = 'user';
     state.hidden = {}; state.heatMetric = 'bits'; state.aggCompare = 'vs_base';
     state.cellSearch = ''; state.cellPage = 0;
     state.cellSort = {col: 'seq', dir: 1};
     ['seg-speed', 'seg-mode', 'seg-plane', 'seg-region', 'seg-xmetric',
-     'seg-time-ymode'].forEach(syncSeg);
+     'seg-time-ymode', 'seg-time-field'].forEach(syncSeg);
     setAll('seq-chips', 'seqs', SEQS, false);
     setAll('cfg-chips', 'cfgs', CFGS, true);
     setAll('rate-chips', 'rates', RATES, false);
@@ -1223,9 +1224,11 @@ function timeSeries(xmode) {
       var rows = rowsFor(cfg);
       if (!rows.length) return;
       var brows = rowsFor('base');
-      var t = mean(rows.map(function (c) { return c.time_s.user.median; }));
+      var t = mean(rows.map(function (c) {
+        return c.time_s[state.timeField].median; }));
       var tb = brows.length ?
-        mean(brows.map(function (c) { return c.time_s.user.median; })) : NaN;
+        mean(brows.map(function (c) {
+          return c.time_s[state.timeField].median; })) : NaN;
       var delta = isFinite(tb) ? pct(t, tb) : NaN;
       out[cfg].push({
         rate: rate,
@@ -1249,7 +1252,8 @@ function timeCurveTip(cfg, p) {
     'taxa ' + p.rate.toUpperCase() + ' · ' + scope + '<br>' +
     'PSNR ' + REGION_NAME[state.region] + ': <b>' + fmt(p.psnr, 3) + '</b> dB<br>' +
     'bitrate: <b>' + fmt(p.bitrate, 3) + '</b> Mb/s<br>' +
-    'tempo user: <b>' + fmt(p.t, 3) + '</b> s (base ' + fmt(p.tb, 3) + ' s)<br>' +
+    'tempo ' + state.timeField + ': <b>' + fmt(p.t, 3) + '</b> s (base ' +
+    fmt(p.tb, 3) + ' s)<br>' +
     'Δtempo: <b>' + fmt(p.delta, 2) + '%</b> · ' + fmt(p.bytes, 0) + ' bytes';
 }
 function drawTimeCurve(svgId, series, xmode, sharedY) {
@@ -1291,7 +1295,9 @@ function drawTimeCurve(svgId, series, xmode, sharedY) {
       'PSNR ' + REGION_NAME[state.region] + ' (dB)' :
       'Bitrate (Mb/s, 25 fps)', 'axis-label', 'middle');
   var yl = svgText(svg, 15, (m.t + H - m.b) / 2,
-    state.timeYMode === 'delta' ? 'Δ tempo user (%)' : 'Tempo user (s)',
+    state.timeYMode === 'delta' ?
+      'Δ tempo ' + state.timeField + ' (%)' :
+      'Tempo ' + state.timeField + ' (s)',
     'axis-label', 'middle');
   yl.setAttribute('transform', 'rotate(-90 15 ' + ((m.t + H - m.b) / 2) + ')');
 
@@ -1351,6 +1357,7 @@ function renderTimeCurves() {
     state.speed.toUpperCase() + ' · ' + state.mode.toUpperCase() + ' · ' +
     state.plane + ' · ' + (state.timeSeq === 'avg' ?
       'média de ' + activeSeqs().length + ' sequências' : state.timeSeq) +
+    ' · tempo ' + state.timeField +
     ' · eixo Y compartilhado entre os dois gráficos (' +
     (state.timeYMode === 'delta' ? 'Δ% contra o base' : 'segundos') + ')';
 }
