@@ -44,12 +44,20 @@ var METRIC_COLS = {
   wall: {key: 'pctWall', label: 'tempo wall', suffix: '%', psnr: false}
 };
 
-var CELLS = D.cells;
+var ALL_CELLS = D.cells;
+var FILL_METHODS = (D.axes.fill_methods || ['patchExtension']).slice();
+var CELLS = [];
 var BY_KEY = {};
-CELLS.forEach(function (c) { BY_KEY[cellKey(c)] = c; });
 
 function cellKey(c) {
   return [c.speed, c.mode, c.plane, c.seq, c.rate, c.config].join('|');
+}
+function rebuildCells() {
+  CELLS = ALL_CELLS.filter(function (c) {
+    return c.fill_method === state.fillMethod;
+  });
+  BY_KEY = {};
+  CELLS.forEach(function (c) { BY_KEY[cellKey(c)] = c; });
 }
 function getCell(sp, md, pl, seq, rate, cfg) {
   return BY_KEY[[sp, md, pl, seq, rate, cfg].join('|')];
@@ -70,8 +78,10 @@ var state = {
   heatSort: null, aggSort: null, cellSort: {col: 'seq', dir: 1},
   cellPage: 0, cellSearch: '',
   repCfg: 'skip', repSeq: 'longdress', repRate: 'r4', repField: 'user',
-  timeYMode: 'absolute', timeSeq: 'avg', timeField: 'user'
+  timeYMode: 'absolute', timeSeq: 'avg', timeField: 'user',
+  fillMethod: FILL_METHODS[0]
 };
+rebuildCells();
 
 /* --------------------------- utilidades --------------------------- */
 function el(tag, attrs, parent) {
@@ -531,6 +541,14 @@ function initControls() {
   makeChips('cfg-chips', CFGS, 'cfgs', true);
   makeChips('rate-chips', RATES, 'rates', false);
 
+  fillSelect(document.getElementById('fill-method'), FILL_METHODS,
+    state.fillMethod);
+  document.getElementById('fill-method').onchange = function (e) {
+    state.fillMethod = e.target.value;
+    rebuildCells();
+    render();
+  };
+
   document.getElementById('seq-all').onclick = function () {
     setAll('seq-chips', 'seqs', SEQS, false); };
   document.getElementById('seq-none').onclick = function () {
@@ -553,6 +571,7 @@ function initControls() {
     state.region = 'occupied_y'; state.xmetric = 'bitrate';
     state.timeSeq = 'avg'; state.timeYMode = 'absolute'; state.timeField = 'user';
     state.hidden = {}; state.heatMetric = 'bits'; state.aggCompare = 'vs_base';
+    state.fillMethod = FILL_METHODS[0]; rebuildCells();
     state.cellSearch = ''; state.cellPage = 0;
     state.cellSort = {col: 'seq', dir: 1};
     ['seg-speed', 'seg-mode', 'seg-plane', 'seg-region', 'seg-xmetric',
@@ -560,6 +579,7 @@ function initControls() {
     setAll('seq-chips', 'seqs', SEQS, false);
     setAll('cfg-chips', 'cfgs', CFGS, true);
     setAll('rate-chips', 'rates', RATES, false);
+    document.getElementById('fill-method').value = state.fillMethod;
     document.getElementById('time-seq').value = 'avg';
     document.getElementById('heat-metric').value = 'bits';
     document.getElementById('agg-compare').value = 'vs_base';
@@ -1082,22 +1102,24 @@ function downloadCSV(name, header, rows) {
 function exportCellsCSV() {
   var rows = sortRows(filteredCells(), state.cellSort, CELL_GET).map(function (c) {
     var d = c.deltas.vs_base;
-    return [c.config, c.seq, c.mode, c.plane, c.speed, c.rate, c.bytes,
-      c.bitrate_mbps_25fps, c.psnr_db.y, c.psnr_db.occupied_y,
+    return [c.fill_method, c.config, c.seq, c.mode, c.plane, c.speed, c.rate,
+      c.bytes, c.bitrate_mbps_25fps, c.psnr_db.y, c.psnr_db.occupied_y,
       c.psnr_db.empty_y, c.time_s.wall.median, c.time_s.user.median,
       d.bytes.percent, d.psnr_occupied_y_db, d.time_user_s.percent];
   });
-  downloadCSV('celulas.csv', ['config', 'seq', 'mode', 'plane', 'speed', 'rate',
-    'bytes', 'mbps25', 'psnr_y', 'psnr_occupied_y', 'psnr_empty_y',
+  downloadCSV('celulas.csv', ['fill_method', 'config', 'seq', 'mode', 'plane',
+    'speed', 'rate', 'bytes', 'mbps25', 'psnr_y', 'psnr_occupied_y',
+    'psnr_empty_y',
     'median_wall_s', 'median_user_s', 'delta_bits_pct',
     'delta_occupied_db', 'delta_user_pct'], rows);
 }
 function exportAggCSV() {
   var rows = aggRows().map(function (a) {
-    return [a.cfg, a.ref, a.n, a.bytesMean, a.bitrateMean, a.pctBytes,
-      a.dbY, a.dbOcc, a.dbEmpty, a.pctUser, a.pctWall];
+    return [state.fillMethod, a.cfg, a.ref, a.n, a.bytesMean, a.bitrateMean,
+      a.pctBytes, a.dbY, a.dbOcc, a.dbEmpty, a.pctUser, a.pctWall];
   });
-  downloadCSV('agregados.csv', ['config', 'reference', 'n_cells', 'bytes_mean',
+  downloadCSV('agregados.csv', ['fill_method', 'config', 'reference', 'n_cells',
+    'bytes_mean',
     'mbps25_mean', 'delta_bits_pct', 'delta_y_db', 'delta_occupied_db',
     'delta_empty_db', 'delta_user_pct', 'delta_wall_pct'], rows);
 }
@@ -1372,6 +1394,7 @@ function renderAbout() {
   p(D.description);
   p('Referência: ' + D.methodology.reference + '. ' + D.methodology.delta_signs +
     '. ' + D.methodology.time.caveat);
+  p('Preenchimento: ' + D.methodology.fill_method);
   h3('Configurações (flags reais)');
   var t = document.createElement('table');
   t.className = 'data';
@@ -1416,7 +1439,8 @@ function render() {
     state.speed.toUpperCase() + ' · ' + state.mode.toUpperCase() + ' · ' +
     state.plane + ' · ' + REGION_NAME[state.region] + ' · ' +
     activeSeqs().length + '/' + SEQS.length + ' sequências · ' +
-    activeRates().length + '/' + RATES.length + ' taxas';
+    activeRates().length + '/' + RATES.length + ' taxas · ' +
+    state.fillMethod;
   if (state.tab === 'rd') renderRD();
   if (state.tab === 'overview') renderOverview();
   if (state.tab === 'tables') {
