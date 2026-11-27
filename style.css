@@ -137,6 +137,7 @@ svg {
 }
 .legend button.off { opacity: .35; }
 .legend .swatch { width: 14px; height: 4px; border-radius: 2px; }
+.legend svg.shape { width: 16px; height: 14px; vertical-align: middle; }
 .notes { font-size: 14.5px; color: var(--ink); }
 .notes div { padding: 6px 0; border-bottom: 1px dashed var(--line); }
 .notes b { color: var(--accent); }

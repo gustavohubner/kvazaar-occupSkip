@@ -30,9 +30,12 @@
     </fieldset>
 
     <fieldset>
-      <legend>Preenchimento do mapa</legend>
-      <label for="fill-method">Método</label>
-      <select id="fill-method"></select>
+      <legend>Preenchimento do mapa <span class="mini" id="fill-count"></span></legend>
+      <div class="chips" id="fill-chips"></div>
+      <div class="chip-actions">
+        <button class="link-btn" id="fill-all">todos</button>
+        <button class="link-btn" id="fill-none">nenhuma</button>
+      </div>
     </fieldset>
 
     <fieldset>
@@ -230,6 +233,7 @@
               <select id="rep-cfg"></select>
               <select id="rep-seq"></select>
               <select id="rep-rate"></select>
+              <select id="rep-fill"></select>
               <select id="rep-field">
                 <option value="user">user</option>
                 <option value="wall">wall</option>

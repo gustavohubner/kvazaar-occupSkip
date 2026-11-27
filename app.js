@@ -46,21 +46,25 @@ var METRIC_COLS = {
 
 var ALL_CELLS = D.cells;
 var FILL_METHODS = (D.axes.fill_methods || ['patchExtension']).slice();
+var FILL_SHORT = {patchExtension: 'patchExt', bbpe: 'bbpe',
+  pushPull: 'pushPull', none: 'none'};
+var MARKERS = ['circle', 'square', 'triangle', 'star'];
+function fillLabel(fill) { return FILL_SHORT[fill] || fill; }
 var CELLS = [];
 var BY_KEY = {};
 
 function cellKey(c) {
-  return [c.speed, c.mode, c.plane, c.seq, c.rate, c.config].join('|');
+  return [c.fill_method, c.speed, c.mode, c.plane, c.seq, c.rate,
+    c.config].join('|');
 }
 function rebuildCells() {
-  CELLS = ALL_CELLS.filter(function (c) {
-    return c.fill_method === state.fillMethod;
-  });
+  CELLS = ALL_CELLS.slice();
   BY_KEY = {};
   CELLS.forEach(function (c) { BY_KEY[cellKey(c)] = c; });
 }
-function getCell(sp, md, pl, seq, rate, cfg) {
-  return BY_KEY[[sp, md, pl, seq, rate, cfg].join('|')];
+function getCell(sp, md, pl, seq, rate, cfg, fill) {
+  fill = fill || activeFills()[0] || FILL_METHODS[0];
+  return BY_KEY[[fill, sp, md, pl, seq, rate, cfg].join('|')];
 }
 function cfgLabel(cfg) { return D.configs[cfg].label; }
 function esc(s) {
@@ -73,13 +77,14 @@ var state = {
   speed: 'slow', mode: 'ra', plane: 'geometry',
   region: 'occupied_y', xmetric: 'bitrate',
   seqs: cloneSet(SEQS), cfgs: cloneSet(CFGS), rates: cloneSet(RATES),
+  fills: cloneSet(FILL_METHODS),
   labels: true, hidden: {},
   tab: 'rd', sub: 'agg', heatMetric: 'bits', aggCompare: 'vs_base',
   heatSort: null, aggSort: null, cellSort: {col: 'seq', dir: 1},
   cellPage: 0, cellSearch: '',
-  repCfg: 'skip', repSeq: 'longdress', repRate: 'r4', repField: 'user',
-  timeYMode: 'absolute', timeSeq: 'avg', timeField: 'user',
-  fillMethod: FILL_METHODS[0]
+  repCfg: 'skip', repSeq: 'longdress', repRate: 'r4',
+  repFill: FILL_METHODS[0], repField: 'user',
+  timeYMode: 'absolute', timeSeq: 'avg', timeField: 'user'
 };
 rebuildCells();
 
@@ -98,6 +103,36 @@ function svgText(parent, x, y, str, cls, anchor) {
   if (anchor) t.setAttribute('text-anchor', anchor);
   t.textContent = str;
   return t;
+}
+function markerFor(fill) {
+  var i = FILL_METHODS.indexOf(fill);
+  return MARKERS[(i < 0 ? 0 : i) % MARKERS.length];
+}
+function markerNode(shape, cx, cy, r, color, anim, parent) {
+  var attrs = {fill: color, stroke: '#fff', 'stroke-width': 1.5};
+  if (anim) attrs['data-anim-key'] = anim;
+  var pts;
+  if (shape === 'square') {
+    return el('rect', Object.assign({x: cx - r, y: cy - r, width: 2 * r,
+      height: 2 * r, rx: 1}, attrs), parent);
+  }
+  if (shape === 'triangle') {
+    pts = [[cx, cy - r], [cx + r, cy + r], [cx - r, cy + r]];
+  } else if (shape === 'diamond') {
+    pts = [[cx, cy - r], [cx + r, cy], [cx, cy + r], [cx - r, cy]];
+  } else if (shape === 'star') {
+    pts = [];
+    for (var k = 0; k < 10; k++) {
+      var ang = -Math.PI / 2 + k * Math.PI / 5;
+      var rr = (k % 2) ? r * 0.45 : r;
+      pts.push([cx + rr * Math.cos(ang), cy + rr * Math.sin(ang)]);
+    }
+  } else {
+    return el('circle', Object.assign({cx: cx, cy: cy, r: r}, attrs), parent);
+  }
+  return el('polygon', Object.assign({points: pts.map(function (p) {
+    return p[0].toFixed(1) + ',' + p[1].toFixed(1);
+  }).join(' ')}, attrs), parent);
 }
 function fmt(v, nd) {
   if (!isFinite(v)) return '—';
@@ -376,15 +411,18 @@ function aggPSNR(rows, region) {
 function xOf(c) { return state.xmetric === 'bytes' ? c.bytes : c.bitrate_mbps_25fps; }
 function meanX(rows) { return mean(rows.map(xOf)); }
 
-function aggregate(cfg, grp, seqs, rates, compare) {
+function aggregate(cfg, grp, seqs, rates, compare, fills) {
   var ref = (compare === 'vs_same_depth' && cfg.slice(-4) === 'qp25') ?
     'd' + cfg[1] : 'base';
+  fills = fills || activeFills();
   var rows = [], brows = [];
   seqs.forEach(function (seq) {
     rates.forEach(function (rate) {
-      var c = getCell(grp.speed, grp.mode, grp.plane, seq, rate, cfg);
-      var b = getCell(grp.speed, grp.mode, grp.plane, seq, rate, ref);
-      if (c && b) { rows.push(c); brows.push(b); }
+      fills.forEach(function (fill) {
+        var c = getCell(grp.speed, grp.mode, grp.plane, seq, rate, cfg, fill);
+        var b = getCell(grp.speed, grp.mode, grp.plane, seq, rate, ref, fill);
+        if (c && b) { rows.push(c); brows.push(b); }
+      });
     });
   });
   if (!rows.length) return null;
@@ -411,6 +449,9 @@ function aggregate(cfg, grp, seqs, rates, compare) {
 function activeSeqs() { return Object.keys(state.seqs); }
 function activeRates() { return RATES.filter(function (r) { return state.rates[r]; }); }
 function activeCfgs() { return CFGS.filter(function (c) { return state.cfgs[c]; }); }
+function activeFills() {
+  return FILL_METHODS.filter(function (f) { return state.fills[f]; });
+}
 function currentGroup() {
   return {speed: state.speed, mode: state.mode, plane: state.plane};
 }
@@ -500,12 +541,16 @@ function fillRepSelects() {
   var cfgs = activeCfgs().length ? activeCfgs() : CFGS;
   var seqs = activeSeqs().length ? activeSeqs() : SEQS;
   var rates = activeRates().length ? activeRates() : RATES;
+  var fills = activeFills().length ? activeFills() : FILL_METHODS;
   if (cfgs.indexOf(state.repCfg) < 0) state.repCfg = cfgs[0];
   if (seqs.indexOf(state.repSeq) < 0) state.repSeq = seqs[0];
   if (rates.indexOf(state.repRate) < 0) state.repRate = rates[0];
+  if (fills.indexOf(state.repFill) < 0) state.repFill = fills[0];
   fillSelect(document.getElementById('rep-cfg'), cfgs, state.repCfg, cfgLabel);
   fillSelect(document.getElementById('rep-seq'), seqs, state.repSeq);
   fillSelect(document.getElementById('rep-rate'), rates, state.repRate);
+  fillSelect(document.getElementById('rep-fill'), fills, state.repFill,
+    fillLabel);
 }
 function switchTab(tab) {
   state.tab = tab;
@@ -541,13 +586,11 @@ function initControls() {
   makeChips('cfg-chips', CFGS, 'cfgs', true);
   makeChips('rate-chips', RATES, 'rates', false);
 
-  fillSelect(document.getElementById('fill-method'), FILL_METHODS,
-    state.fillMethod);
-  document.getElementById('fill-method').onchange = function (e) {
-    state.fillMethod = e.target.value;
-    rebuildCells();
-    render();
-  };
+  makeChips('fill-chips', FILL_METHODS, 'fills', false);
+  document.getElementById('fill-all').onclick = function () {
+    setAll('fill-chips', 'fills', FILL_METHODS, false); };
+  document.getElementById('fill-none').onclick = function () {
+    setNone('fill-chips', 'fills', false); };
 
   document.getElementById('seq-all').onclick = function () {
     setAll('seq-chips', 'seqs', SEQS, false); };
@@ -571,7 +614,8 @@ function initControls() {
     state.region = 'occupied_y'; state.xmetric = 'bitrate';
     state.timeSeq = 'avg'; state.timeYMode = 'absolute'; state.timeField = 'user';
     state.hidden = {}; state.heatMetric = 'bits'; state.aggCompare = 'vs_base';
-    state.fillMethod = FILL_METHODS[0]; rebuildCells();
+    state.fills = cloneSet(FILL_METHODS); state.repFill = FILL_METHODS[0];
+    rebuildCells();
     state.cellSearch = ''; state.cellPage = 0;
     state.cellSort = {col: 'seq', dir: 1};
     ['seg-speed', 'seg-mode', 'seg-plane', 'seg-region', 'seg-xmetric',
@@ -579,7 +623,7 @@ function initControls() {
     setAll('seq-chips', 'seqs', SEQS, false);
     setAll('cfg-chips', 'cfgs', CFGS, true);
     setAll('rate-chips', 'rates', RATES, false);
-    document.getElementById('fill-method').value = state.fillMethod;
+    setAll('fill-chips', 'fills', FILL_METHODS, false);
     document.getElementById('time-seq').value = 'avg';
     document.getElementById('heat-metric').value = 'bits';
     document.getElementById('agg-compare').value = 'vs_base';
@@ -630,6 +674,8 @@ function initControls() {
     state.repSeq = e.target.value; render(); };
   document.getElementById('rep-rate').onchange = function (e) {
     state.repRate = e.target.value; render(); };
+  document.getElementById('rep-fill').onchange = function (e) {
+    state.repFill = e.target.value; render(); };
   document.getElementById('rep-field').onchange = function (e) {
     state.repField = e.target.value; render(); };
   fillRepSelects();
@@ -637,37 +683,58 @@ function initControls() {
 
 /* ------------------------------ RD -------------------------------- */
 function rdSeries() {
-  var out = {};
+  var out = [];
   var list = activeCfgs().slice();
   if (list.indexOf('base') < 0) list.unshift('base');
   list.forEach(function (cfg) {
-    if (state.hidden[cfg]) return;
-    out[cfg] = [];
-    activeRates().forEach(function (rate) {
-      var rows = CELLS.filter(function (c) {
-        return c.config === cfg && c.speed === state.speed &&
-          c.mode === state.mode && c.plane === state.plane && c.rate === rate &&
-          state.seqs[c.seq];
-      });
-      if (rows.length) {
-        out[cfg].push({
-          rate: rate, x: meanX(rows), y: aggPSNR(rows, state.region),
-          rows: rows
+    activeFills().forEach(function (fill) {
+      if (state.hidden[cfg + '|*'] || state.hidden['*|' + fill]) return;
+      var pts = [];
+      activeRates().forEach(function (rate) {
+        var rows = CELLS.filter(function (c) {
+          return c.config === cfg && c.speed === state.speed &&
+            c.mode === state.mode && c.plane === state.plane && c.rate === rate &&
+            c.fill_method === fill && state.seqs[c.seq];
         });
+        if (rows.length) {
+          pts.push({
+            rate: rate, x: meanX(rows), y: aggPSNR(rows, state.region),
+            rows: rows
+          });
+        }
+      });
+      if (pts.length) {
+        out.push({cfg: cfg, fill: fill, key: cfg + '|' + fill, pts: pts});
       }
     });
   });
   return out;
 }
-function rdTooltip(cfg, p, series) {
-  var b = series.base && series.base.filter(function (q) { return q.rate === p.rate; })[0];
-  var scope = activeSeqs().length + ' seq (média)';
+function rdAggPoint(cfg, rate) {
+  var rows = CELLS.filter(function (c) {
+    return c.config === cfg && c.speed === state.speed &&
+      c.mode === state.mode && c.plane === state.plane && c.rate === rate &&
+      state.seqs[c.seq] && state.fills[c.fill_method];
+  });
+  return rows.length ? {x: meanX(rows), y: aggPSNR(rows, state.region)} : null;
+}
+function rdBasePoint(fill, rate) {
+  var rows = CELLS.filter(function (c) {
+    return c.config === 'base' && c.speed === state.speed &&
+      c.mode === state.mode && c.plane === state.plane && c.rate === rate &&
+      c.fill_method === fill && state.seqs[c.seq];
+  });
+  return rows.length ? {x: meanX(rows), y: aggPSNR(rows, state.region)} : null;
+}
+function rdTooltip(cfg, fill, p) {
+  var b = cfg === 'base' ? null : rdBasePoint(fill, p.rate);
+  var scope = activeSeqs().length + ' seq · ' + fillLabel(fill);
   var s = '<div class="tt-title">' + esc(cfgLabel(cfg)) + '</div>';
   s += 'taxa ' + p.rate.toUpperCase() + ' · ' + scope + '<br>';
   s += 'X: <b>' + fmt(p.x, 3) + '</b> ' +
        (state.xmetric === 'bytes' ? 'bytes' : 'Mb/s') + '<br>';
   s += REGION_NAME[state.region] + ': <b>' + fmt(p.y, 3) + '</b> dB<br>';
-  if (b && cfg !== 'base') {
+  if (b) {
     s += 'Δbits: <b>' + fmt(pct(p.x, b.x), 2) + '%</b> · ' +
          'ΔPSNR: <b>' + fmt(p.y - b.y, 3) + '</b> dB<br>';
   }
@@ -675,15 +742,53 @@ function rdTooltip(cfg, p, series) {
     return c.time_s.user.median; })), 2) + ' s user';
   return s;
 }
+function renderSeriesLegend(id) {
+  var legend = document.getElementById(id);
+  clear(legend);
+  var cfgs = activeCfgs().slice();
+  if (cfgs.indexOf('base') < 0) cfgs.unshift('base');
+  cfgs.forEach(function (cfg) {
+    var b = document.createElement('button');
+    if (state.hidden[cfg + '|*']) b.className = 'off';
+    b.title = cfgLabel(cfg);
+    var sw = document.createElement('span');
+    sw.className = 'swatch';
+    sw.style.background = COLORS[cfg];
+    b.appendChild(sw);
+    b.appendChild(document.createTextNode(' ' + cfg));
+    b.onclick = function () {
+      var k = cfg + '|*';
+      if (state.hidden[k]) delete state.hidden[k]; else state.hidden[k] = true;
+      render();
+    };
+    legend.appendChild(b);
+  });
+  activeFills().forEach(function (fill) {
+    var b = document.createElement('button');
+    if (state.hidden['*|' + fill]) b.className = 'off';
+    b.title = fill;
+    var svg = el('svg', {width: 16, height: 14, viewBox: '-8 -8 16 16',
+      'class': 'shape'}, b);
+    markerNode(markerFor(fill), 0, 0, 6, '#111827', null, svg);
+    b.appendChild(document.createTextNode(' ' + fillLabel(fill)));
+    b.onclick = function () {
+      var k = '*|' + fill;
+      if (state.hidden[k]) delete state.hidden[k]; else state.hidden[k] = true;
+      render();
+    };
+    legend.appendChild(b);
+  });
+}
 function renderRD() {
   var series = rdSeries();
-  var cfgs = Object.keys(series).filter(function (c) { return series[c].length; });
+  var cfgList = activeCfgs().slice();
+  if (cfgList.indexOf('base') < 0) cfgList.unshift('base');
   var svg = document.getElementById('rd-svg');
   clear(svg);
   var W = 980, H = 560, m = {l: 74, r: 26, t: 24, b: 62};
   var xs = [], ys = [];
-  cfgs.forEach(function (cfg) {
-    series[cfg].forEach(function (p) { xs.push(p.x); ys.push(p.y); });
+  series.forEach(function (s) {
+    s.pts.forEach(function (p) { xs.push(p.x); ys.push(p.y); });
   });
   if (!xs.length) {
     svgText(svg, W / 2, H / 2, 'Sem dados para os filtros atuais.', 'axis-label', 'middle');
@@ -717,78 +822,62 @@ function renderRD() {
     REGION_NAME[state.region] + ' (dB)', 'axis-label', 'middle');
   yl.setAttribute('transform', 'rotate(-90 17 ' + ((m.t + H - m.b) / 2) + ')');
 
-  cfgs.forEach(function (cfg) {
-    var pts = series[cfg];
-    var path = pts.map(function (p, i) {
+  series.forEach(function (s) {
+    var path = s.pts.map(function (p, i) {
       return (i ? 'L' : 'M') + sx(p.x).toFixed(1) + ',' + sy(p.y).toFixed(1);
     }).join(' ');
     el('path', {
-      d: path, fill: 'none', stroke: COLORS[cfg],
-      'stroke-width': cfg === 'base' ? 2.8 : 2.1,
-      'stroke-dasharray': cfg === 'base' ? '7 4' : '',
+      d: path, fill: 'none', stroke: COLORS[s.cfg],
+      'stroke-width': s.cfg === 'base' ? 2.8 : 2.1,
+      'stroke-dasharray': s.cfg === 'base' ? '7 4' : '',
       'stroke-linejoin': 'round',
-      'data-anim-key': 'rd|curve|' + cfg
+      'data-anim-key': 'rd|curve|' + s.key
     }, svg);
-    pts.forEach(function (p) {
+    s.pts.forEach(function (p) {
       var cx = sx(p.x), cy = sy(p.y);
-      var c = el('circle', {
-        cx: cx, cy: cy, r: cfg === 'base' ? 5 : 4.2,
-        fill: COLORS[cfg], stroke: '#fff', 'stroke-width': 1.6,
-        'data-anim-key': 'rd|point|' + cfg + '|' + p.rate
-      }, svg);
-      c.style.cursor = 'pointer';
-      bindTip(c, rdTooltip(cfg, p, series));
-      if (state.labels) {
+      var dot = markerNode(markerFor(s.fill), cx, cy,
+        s.cfg === 'base' ? 5 : 4.2, COLORS[s.cfg],
+        'rd|point|' + s.key + '|' + p.rate, svg);
+      dot.style.cursor = 'pointer';
+      bindTip(dot, rdTooltip(s.cfg, s.fill, p));
+      if (state.labels && s.fill === activeFills()[0]) {
         svgText(svg, cx + 7, cy - 7, p.rate.toUpperCase(), 'point-label');
       }
     });
   });
 
-  var legend = document.getElementById('rd-legend');
-  clear(legend);
-  var legendCfgs = activeCfgs().slice();
-  if (legendCfgs.indexOf('base') < 0) {
-    legendCfgs.unshift('base');
-  }
-  legendCfgs.forEach(function (cfg) {
-    var b = document.createElement('button');
-    if (state.hidden[cfg]) b.className = 'off';
-    b.title = cfgLabel(cfg);
-    b.innerHTML = '<span class="swatch" style="background:' + COLORS[cfg] +
-      '"></span>' + esc(cfg);
-    b.onclick = function () {
-      if (state.hidden[cfg]) delete state.hidden[cfg]; else state.hidden[cfg] = true;
-      render();
-    };
-    legend.appendChild(b);
-  });
+  renderSeriesLegend('rd-legend');
 
   var scope = 'média de ' + activeSeqs().length + ' seq';
   document.getElementById('rd-hint').textContent =
     state.speed.toUpperCase() + ' · ' + state.mode.toUpperCase() + ' · ' +
-    state.plane + ' · ' + scope + ' · ' + REGION_NAME[state.region];
+    state.plane + ' · ' + scope + ' · ' + REGION_NAME[state.region] +
+    ' · ' + activeFills().length + '/' + FILL_METHODS.length +
+    ' preenchimentos (forma = método)';
 
   var t1 = document.getElementById('rd-points-table');
   clear(t1);
   var h1 = document.createElement('thead');
   var b1 = document.createElement('tbody');
   var head = document.createElement('tr');
-  head.innerHTML = '<th>taxa</th>' + cfgs.map(function (c) {
+  head.innerHTML = '<th>taxa</th>' + cfgList.map(function (c) {
     return '<th>' + esc(c) + '</th>'; }).join('');
   h1.appendChild(head); t1.appendChild(h1); t1.appendChild(b1);
   RATES.forEach(function (rate) {
     if (!state.rates[rate]) return;
     var tr = document.createElement('tr');
-    tr.innerHTML = '<td>' + rate.toUpperCase() + '</td>' + cfgs.map(function (cfg) {
-      var p = (series[cfg] || []).filter(function (q) { return q.rate === rate; })[0];
-      return '<td class="num">' + (p ? fmt(p.x, 2) + ' / ' + fmt(p.y, 2) : '—') + '</td>';
-    }).join('');
+    tr.innerHTML = '<td>' + rate.toUpperCase() + '</td>' +
+      cfgList.map(function (cfg) {
+        var p = rdAggPoint(cfg, rate);
+        return '<td class="num">' +
+          (p ? fmt(p.x, 2) + ' / ' + fmt(p.y, 2) : '—') + '</td>';
+      }).join('');
     b1.appendChild(tr);
   });
 
   var t2 = document.getElementById('rd-delta-table');
   clear(t2);
-  var other = cfgs.filter(function (c) { return c !== 'base'; });
+  var other = cfgList.filter(function (c) { return c !== 'base'; });
   var h2 = document.createElement('thead');
   var b2 = document.createElement('tbody');
   var row2 = document.createElement('tr');
@@ -799,8 +888,8 @@ function renderRD() {
     if (!state.rates[rate]) return;
     var tr = document.createElement('tr');
     tr.innerHTML = '<td>' + rate.toUpperCase() + '</td>' + other.map(function (cfg) {
-      var p = (series[cfg] || []).filter(function (q) { return q.rate === rate; })[0];
-      var b = (series.base || []).filter(function (q) { return q.rate === rate; })[0];
+      var p = rdAggPoint(cfg, rate);
+      var b = rdAggPoint('base', rate);
       if (!p || !b) return '<td class="num">—</td>';
       var d = pct(p.x, b.x), dy = p.y - b.y;
       return '<td class="num ' + (d > 0 ? 'bad' : 'good') + '">' +
@@ -1025,14 +1114,54 @@ function renderAggTable() {
     body.appendChild(tr);
   });
 }
+function aggregateCells(rows) {
+  var a = rows[0];
+  return {
+    config: a.config, seq: a.seq, rate: a.rate,
+    mode: a.mode, plane: a.plane, speed: a.speed,
+    bytes: mean(rows.map(function (c) { return c.bytes; })),
+    bitrate_mbps_25fps: mean(rows.map(function (c) {
+      return c.bitrate_mbps_25fps; })),
+    psnr_db: {
+      y: aggPSNR(rows, 'y'), occupied_y: aggPSNR(rows, 'occupied_y'),
+      empty_y: aggPSNR(rows, 'empty_y')
+    },
+    time_s: {
+      user: {median: mean(rows.map(function (c) {
+        return c.time_s.user.median; }))},
+      wall: {median: mean(rows.map(function (c) {
+        return c.time_s.wall.median; }))}
+    }
+  };
+}
 function filteredCells() {
   var q = state.cellSearch;
-  return CELLS.filter(function (c) {
-    return c.speed === state.speed && c.mode === state.mode &&
-      c.plane === state.plane && state.seqs[c.seq] && state.rates[c.rate] &&
-      state.cfgs[c.config] &&
-      (!q || (c.seq + ' ' + c.config + ' ' + c.rate).toLowerCase().indexOf(q) >= 0);
+  var groups = {};
+  CELLS.forEach(function (c) {
+    if (!(c.speed === state.speed && c.mode === state.mode &&
+          c.plane === state.plane && state.seqs[c.seq] && state.rates[c.rate] &&
+          state.cfgs[c.config] && state.fills[c.fill_method])) return;
+    if (q && (c.seq + ' ' + c.config + ' ' + c.rate)
+        .toLowerCase().indexOf(q) < 0) return;
+    var k = [c.config, c.seq, c.rate, c.speed, c.mode, c.plane].join('|');
+    (groups[k] || (groups[k] = [])).push(c);
   });
+  var out = Object.keys(groups).map(function (k) {
+    return aggregateCells(groups[k]);
+  });
+  var bySeq = {};
+  out.forEach(function (c) { bySeq[c.config + '|' + c.seq] = c; });
+  out.forEach(function (c) {
+    var b = bySeq['base|' + c.seq];
+    c.deltas = {vs_base: {
+      bytes: {percent: b ? pct(c.bytes, b.bytes) : NaN},
+      psnr_occupied_y_db: b ?
+        c.psnr_db.occupied_y - b.psnr_db.occupied_y : NaN,
+      time_user_s: {percent: b ?
+        pct(c.time_s.user.median, b.time_s.user.median) : NaN}
+    }};
+  });
+  return out;
 }
 var CELL_COLS = [
   {key: 'config', label: 'config'}, {key: 'seq', label: 'seq'},
@@ -1102,12 +1231,12 @@ function downloadCSV(name, header, rows) {
 function exportCellsCSV() {
   var rows = sortRows(filteredCells(), state.cellSort, CELL_GET).map(function (c) {
     var d = c.deltas.vs_base;
-    return [c.fill_method, c.config, c.seq, c.mode, c.plane, c.speed, c.rate,
+    return [c.config, c.seq, c.mode, c.plane, c.speed, c.rate,
       c.bytes, c.bitrate_mbps_25fps, c.psnr_db.y, c.psnr_db.occupied_y,
       c.psnr_db.empty_y, c.time_s.wall.median, c.time_s.user.median,
       d.bytes.percent, d.psnr_occupied_y_db, d.time_user_s.percent];
   });
-  downloadCSV('celulas.csv', ['fill_method', 'config', 'seq', 'mode', 'plane',
+  downloadCSV('celulas.csv', ['config', 'seq', 'mode', 'plane',
     'speed', 'rate', 'bytes', 'mbps25', 'psnr_y', 'psnr_occupied_y',
     'psnr_empty_y',
     'median_wall_s', 'median_user_s', 'delta_bits_pct',
@@ -1115,10 +1244,11 @@ function exportCellsCSV() {
 }
 function exportAggCSV() {
   var rows = aggRows().map(function (a) {
-    return [state.fillMethod, a.cfg, a.ref, a.n, a.bytesMean, a.bitrateMean,
-      a.pctBytes, a.dbY, a.dbOcc, a.dbEmpty, a.pctUser, a.pctWall];
+    return [activeFills().join('+'), a.cfg, a.ref, a.n, a.bytesMean,
+      a.bitrateMean, a.pctBytes, a.dbY, a.dbOcc, a.dbEmpty, a.pctUser,
+      a.pctWall];
   });
-  downloadCSV('agregados.csv', ['fill_method', 'config', 'reference', 'n_cells',
+  downloadCSV('agregados.csv', ['fill_methods', 'config', 'reference', 'n_cells',
     'bytes_mean',
     'mbps25_mean', 'delta_bits_pct', 'delta_y_db', 'delta_occupied_db',
     'delta_empty_db', 'delta_user_pct', 'delta_wall_pct'], rows);
@@ -1173,10 +1303,12 @@ function renderTime() {
   document.getElementById('time-hint').textContent =
     state.speed.toUpperCase() + ' · ' + state.mode.toUpperCase() + ' · ' +
     state.plane + ' · ' + activeSeqs().length + ' sequências · ' +
-    activeRates().length + ' taxas · barras em escala fixa (−50% a +25%)';
+    activeRates().length + ' taxas · ' + activeFills().length + '/' +
+    FILL_METHODS.length + ' preenchimentos · barras em escala fixa ' +
+    '(−50% a +25%)';
 
   var c = getCell(state.speed, state.mode, state.plane, state.repSeq,
-                  state.repRate, state.repCfg);
+                  state.repRate, state.repCfg, state.repFill);
   var box = document.getElementById('rep-svg');
   clear(box);
   var stats = document.getElementById('rep-stats');
@@ -1213,7 +1345,8 @@ function renderTime() {
     .setAttribute('transform', 'rotate(-90 8 ' + ((m2.t + H2 - m2.b) / 2) + ')');
 
   [
-    ['configuração', cfgLabel(c.config)], ['célula', c.seq + ' · ' + c.mode + ' · ' +
+    ['configuração', cfgLabel(c.config)], ['preenchimento', c.fill_method],
+    ['célula', c.seq + ' · ' + c.mode + ' · ' +
       c.plane + ' · ' + c.speed + ' · ' + c.rate.toUpperCase()],
     ['bytes', fmt(c.bytes, 0)], ['mediana', fmt(s.median, 3) + ' s'],
     ['média', fmt(s.mean, 3) + ' s'], ['mín / máx', fmt(s.min, 3) + ' / ' + fmt(s.max, 3) + ' s'],
@@ -1227,49 +1360,53 @@ function renderTime() {
 
 /* --------------- tempo × qualidade e tempo × bitrate --------------- */
 function timeSeries(xmode) {
-  var out = {};
+  var out = [];
   var list = activeCfgs().slice();
   if (list.indexOf('base') < 0) list.unshift('base');
   list.forEach(function (cfg) {
-    if (state.hidden[cfg]) return;
-    out[cfg] = [];
-    activeRates().forEach(function (rate) {
-      function rowsFor(name) {
-        return CELLS.filter(function (c) {
-          return c.config === name && c.speed === state.speed &&
-            c.mode === state.mode && c.plane === state.plane &&
-            c.rate === rate &&
-            (state.timeSeq === 'avg' ? state.seqs[c.seq] :
-              c.seq === state.timeSeq);
+    activeFills().forEach(function (fill) {
+      if (state.hidden[cfg + '|*'] || state.hidden['*|' + fill]) return;
+      var key = cfg + '|' + fill;
+      var pts = [];
+      activeRates().forEach(function (rate) {
+        function rowsFor(name) {
+          return CELLS.filter(function (c) {
+            return c.config === name && c.speed === state.speed &&
+              c.mode === state.mode && c.plane === state.plane &&
+              c.rate === rate && c.fill_method === fill &&
+              (state.timeSeq === 'avg' ? state.seqs[c.seq] :
+                c.seq === state.timeSeq);
+          });
+        }
+        var rows = rowsFor(cfg);
+        if (!rows.length) return;
+        var brows = rowsFor('base');
+        var t = mean(rows.map(function (c) {
+          return c.time_s[state.timeField].median; }));
+        var tb = brows.length ?
+          mean(brows.map(function (c) {
+            return c.time_s[state.timeField].median; })) : NaN;
+        var delta = isFinite(tb) ? pct(t, tb) : NaN;
+        pts.push({
+          rate: rate, x: xmode === 'quality' ? aggPSNR(rows, state.region) :
+            mean(rows.map(function (c) { return c.bitrate_mbps_25fps; })),
+          psnr: aggPSNR(rows, state.region),
+          bitrate: mean(rows.map(function (c) {
+            return c.bitrate_mbps_25fps; })),
+          t: t, tb: tb, delta: delta,
+          y: state.timeYMode === 'delta' ? (isFinite(delta) ? delta : 0) : t,
+          bytes: mean(rows.map(function (c) { return c.bytes; }))
         });
-      }
-      var rows = rowsFor(cfg);
-      if (!rows.length) return;
-      var brows = rowsFor('base');
-      var t = mean(rows.map(function (c) {
-        return c.time_s[state.timeField].median; }));
-      var tb = brows.length ?
-        mean(brows.map(function (c) {
-          return c.time_s[state.timeField].median; })) : NaN;
-      var delta = isFinite(tb) ? pct(t, tb) : NaN;
-      out[cfg].push({
-        rate: rate,
-        x: xmode === 'quality' ? aggPSNR(rows, state.region) :
-          mean(rows.map(function (c) { return c.bitrate_mbps_25fps; })),
-        psnr: aggPSNR(rows, state.region),
-        bitrate: mean(rows.map(function (c) {
-          return c.bitrate_mbps_25fps; })),
-        t: t, tb: tb, delta: delta,
-        y: state.timeYMode === 'delta' ? (isFinite(delta) ? delta : 0) : t,
-        bytes: mean(rows.map(function (c) { return c.bytes; }))
       });
+      if (pts.length) out.push({cfg: cfg, fill: fill, key: key, pts: pts});
     });
   });
   return out;
 }
-function timeCurveTip(cfg, p) {
-  var scope = state.timeSeq === 'avg' ?
-    activeSeqs().length + ' seq (média)' : state.timeSeq;
+function timeCurveTip(cfg, fill, p) {
+  var scope = (state.timeSeq === 'avg' ?
+    activeSeqs().length + ' seq (média)' : state.timeSeq) +
+    ' · ' + fillLabel(fill);
   return '<div class="tt-title">' + esc(cfgLabel(cfg)) + '</div>' +
     'taxa ' + p.rate.toUpperCase() + ' · ' + scope + '<br>' +
     'PSNR ' + REGION_NAME[state.region] + ': <b>' + fmt(p.psnr, 3) + '</b> dB<br>' +
@@ -1283,8 +1420,8 @@ function drawTimeCurve(svgId, series, xmode, sharedY) {
   clear(svg);
   var W = 620, H = 420, m = {l: 68, r: 20, t: 20, b: 58};
   var xs = [], ys = [];
-  Object.keys(series).forEach(function (cfg) {
-    series[cfg].forEach(function (p) { xs.push(p.x); ys.push(p.y); });
+  series.forEach(function (s) {
+    s.pts.forEach(function (p) { xs.push(p.x); ys.push(p.y); });
   });
   if (!xs.length) {
     svgText(svg, W / 2, H / 2, 'Sem dados para os filtros atuais.',
@@ -1323,24 +1460,23 @@ function drawTimeCurve(svgId, series, xmode, sharedY) {
     'axis-label', 'middle');
   yl.setAttribute('transform', 'rotate(-90 15 ' + ((m.t + H - m.b) / 2) + ')');
 
-  Object.keys(series).forEach(function (cfg) {
-    var pts = series[cfg];
-    var path = pts.map(function (p, i) {
+  series.forEach(function (s) {
+    var path = s.pts.map(function (p, i) {
       return (i ? 'L' : 'M') + sx(p.x).toFixed(1) + ',' + sy(p.y).toFixed(1);
     }).join(' ');
-    el('path', {d: path, fill: 'none', stroke: COLORS[cfg],
-      'stroke-width': cfg === 'base' ? 2.8 : 2,
-      'stroke-dasharray': cfg === 'base' ? '7 4' : '',
+    el('path', {d: path, fill: 'none', stroke: COLORS[s.cfg],
+      'stroke-width': s.cfg === 'base' ? 2.8 : 2,
+      'stroke-dasharray': s.cfg === 'base' ? '7 4' : '',
       'stroke-linejoin': 'round',
-      'data-anim-key': svgId + '|curve|' + cfg}, svg);
-    pts.forEach(function (p) {
+      'data-anim-key': svgId + '|curve|' + s.key}, svg);
+    s.pts.forEach(function (p) {
       var cx = sx(p.x), cy = sy(p.y);
-      var dot = el('circle', {cx: cx, cy: cy, r: cfg === 'base' ? 5 : 4,
-        fill: COLORS[cfg], stroke: '#fff', 'stroke-width': 1.5,
-        'data-anim-key': svgId + '|point|' + cfg + '|' + p.rate}, svg);
+      var dot = markerNode(markerFor(s.fill), cx, cy,
+        s.cfg === 'base' ? 5 : 4, COLORS[s.cfg],
+        svgId + '|point|' + s.key + '|' + p.rate, svg);
       dot.style.cursor = 'pointer';
-      bindTip(dot, timeCurveTip(cfg, p));
-      if (cfg === 'base') {
+      bindTip(dot, timeCurveTip(s.cfg, s.fill, p));
+      if (s.cfg === 'base' && s.fill === activeFills()[0]) {
         svgText(svg, cx + 6, cy - 7, p.rate.toUpperCase(), 'point-label');
       }
     });
@@ -1349,9 +1485,9 @@ function drawTimeCurve(svgId, series, xmode, sharedY) {
 function renderTimeCurves() {
   var sq = timeSeries('quality'), sb = timeSeries('bitrate');
   var allY = [];
-  [sq, sb].forEach(function (s) {
-    Object.keys(s).forEach(function (cfg) {
-      s[cfg].forEach(function (p) { allY.push(p.y); });
+  [sq, sb].forEach(function (list) {
+    list.forEach(function (s) {
+      s.pts.forEach(function (p) { allY.push(p.y); });
     });
   });
   if (state.timeYMode === 'delta') allY.push(0);
@@ -1359,27 +1495,13 @@ function renderTimeCurves() {
   drawTimeCurve('time-quality-svg', sq, 'quality', sharedY);
   drawTimeCurve('time-bitrate-svg', sb, 'bitrate', sharedY);
 
-  var legend = document.getElementById('time-legend');
-  clear(legend);
-  var names = activeCfgs().slice();
-  if (names.indexOf('base') < 0) names.unshift('base');
-  names.forEach(function (cfg) {
-    var b = document.createElement('button');
-    if (state.hidden[cfg]) b.className = 'off';
-    b.title = cfgLabel(cfg);
-    b.innerHTML = '<span class="swatch" style="background:' + COLORS[cfg] +
-      '"></span>' + esc(cfg);
-    b.onclick = function () {
-      if (state.hidden[cfg]) delete state.hidden[cfg]; else state.hidden[cfg] = true;
-      render();
-    };
-    legend.appendChild(b);
-  });
+  renderSeriesLegend('time-legend');
   document.getElementById('time-curve-hint').textContent =
     state.speed.toUpperCase() + ' · ' + state.mode.toUpperCase() + ' · ' +
     state.plane + ' · ' + (state.timeSeq === 'avg' ?
       'média de ' + activeSeqs().length + ' sequências' : state.timeSeq) +
-    ' · tempo ' + state.timeField +
+    ' · ' + activeFills().length + '/' + FILL_METHODS.length +
+    ' preenchimentos · tempo ' + state.timeField +
     ' · eixo Y compartilhado entre os dois gráficos (' +
     (state.timeYMode === 'delta' ? 'Δ% contra o base' : 'segundos') + ')';
 }
@@ -1440,7 +1562,7 @@ function render() {
     state.plane + ' · ' + REGION_NAME[state.region] + ' · ' +
     activeSeqs().length + '/' + SEQS.length + ' sequências · ' +
     activeRates().length + '/' + RATES.length + ' taxas · ' +
-    state.fillMethod;
+    activeFills().length + '/' + FILL_METHODS.length + ' preenchimentos';
   if (state.tab === 'rd') renderRD();
   if (state.tab === 'overview') renderOverview();
   if (state.tab === 'tables') {
