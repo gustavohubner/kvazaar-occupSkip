@@ -996,6 +996,7 @@ function renderOverview() {
         'Δbits: <b>' + fmt(p.x, 2) + '%</b><br>' +
         'ΔPSNR occ: <b>' + fmt(p.y, 3) + ' dB</b><br>' +
         'ΔPSNR Y: ' + fmt(p.a.dbY, 3) + ' dB<br>' +
+        'ΔPSNR vazio: ' + fmt(p.a.dbEmpty, 3) + ' dB<br>' +
         'Δuser: <b>' + fmt(p.t, 2) + '%</b> · Δwall: ' +
         fmt(p.a.pctWall, 2) + '%');
       // Evita que rótulos de pontos próximos se sobreponham.
@@ -1023,10 +1024,13 @@ function renderOverview() {
     var fastest = rows.slice().sort(function (a, b) { return a.pctUser - b.pctUser; })[0];
     var cheapest = rows.slice().sort(function (a, b) { return a.pctBytes - b.pctBytes; })[0];
     var safest = rows.slice().sort(function (a, b) { return b.dbOcc - a.dbOcc; })[0];
+    var emptiest = rows.slice().sort(function (a, b) {
+      return b.dbEmpty - a.dbEmpty; })[0];
     [
       ['Menor tempo', fastest.cfg, fmt(fastest.pctUser, 1) + '% user'],
       ['Menos bits', cheapest.cfg, fmt(cheapest.pctBytes, 1) + '% bits'],
-      ['Melhor PSNR ocupado', safest.cfg, fmt(safest.dbOcc, 3) + ' dB']
+      ['Melhor PSNR ocupado', safest.cfg, fmt(safest.dbOcc, 3) + ' dB'],
+      ['Melhor PSNR vazio', emptiest.cfg, fmt(emptiest.dbEmpty, 3) + ' dB']
     ].forEach(function (n) {
       var d = document.createElement('div');
       d.innerHTML = n[0] + ': <b>' + esc(n[1]) + '</b> — ' + esc(n[2]) +
