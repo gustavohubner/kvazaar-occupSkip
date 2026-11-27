@@ -1423,7 +1423,7 @@ function renderAbout() {
     var d = document.createElement('div');
     d.className = 'notes';
     d.innerHTML = '<div><b>' + esc(s.path) + '</b> — ' +
-      esc(s.configs.join(', ')) + (s.speed ? ' · ' + esc(s.speed) : '') +
+      esc((s.configs || []).join(', ')) + (s.speed ? ' · ' + esc(s.speed) : '') +
       (s.note ? ' · ' + esc(s.note) : '') + '</div>';
     box.appendChild(d);
   });
