@@ -361,7 +361,7 @@ var PX_FIELD = {
   y: 'pixels_global', occupied_y: 'pixels_occupied', empty_y: 'pixels_empty'
 };
 function pxOf(c, region) {
-  return D.pixel_weights[c.seq + '|' + c.mode][PX_FIELD[region]];
+  return D.pixel_weights[c.seq + '|' + c.mode + '|' + c.fill_method][PX_FIELD[region]];
 }
 function aggPSNR(rows, region) {
   if (!rows.length) return NaN;
