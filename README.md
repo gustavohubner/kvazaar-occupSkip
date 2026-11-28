@@ -36,7 +36,11 @@ JavaScript puro. A URL troca de hash (`#rd`, `#overview`, `#pareto`,
   Δtempo user aparece no rótulo ao lado de cada ponto.
 - **Pareto (BD × tempo)** — escolhe uma configuração por célula, calculando
   tudo no navegador a partir de `data.js`. X = ganho de tempo contra o base
-  (`T%`), Y = BD-rate sobre a PSNR ocupada (`BD%`). O tempo usa a mediana das
+  (`T%`), Y = BD-rate sobre a PSNR da região selecionada no menu lateral
+  (`Y global`, `Y ocupado` ou `Y vazio`; padrão: `Y ocupado`). O ΔPSNR
+  descritivo e a ponderação por pixels usam a mesma região. Curvas RD não
+  monotônicas ou com sobreposição de PSNR < 0,5 dB não recebem BD-rate —
+  são marcadas como indisponíveis, sem extrapolação. O tempo usa a mediana das
   10 repetições e o IC95% vem de bootstrap; o BD-rate usa PCHIP nos 5 QPs e
   média geométrica das 5 sequências. A frente de Pareto é o conjunto não
   dominado; a regra adota a config mais rápida com `BD% ≤ limite` e IC95% do
@@ -71,11 +75,13 @@ o mapa de calor acumulam os métodos selecionados. Há atalhos para
 `base + depth`, `base + QP`, `base + skip`, e "resetar". As curvas RD
 sempre incluem o `base` como referência e agregam as sequências selecionadas.
 
-A aba **Pareto** é a exceção: ela usa velocidade, modo e plano da sidebar,
-mas tem o **seu próprio seletor de preenchimento** (um por vez) e ignora os
-chips de configurações, sequências e taxas, porque o BD-rate é definido sobre
-as 5 sequências × 5 taxas. Na geometria o seletor fica desabilitado: bytes e
-PSNR são idênticos nos 4 preenchimentos e só o tempo é agregado.
+A aba **Pareto** é a exceção: ela usa velocidade, modo, plano **e região de
+PSNR** da sidebar, mas tem o **seu próprio seletor de preenchimento** (um por
+vez) e ignora os chips de configurações, sequências e taxas, porque o BD-rate
+é definido sobre as 5 sequências × 5 taxas. Trocar a região recalcula o
+BD-rate e o ΔQ; trocar `preenchimento`, `limite` ou `IC95%` não refaz o tempo.
+Na geometria o seletor de preenchimento fica desabilitado: bytes e PSNR são
+idênticos nos 4 preenchimentos e só o tempo é agregado.
 
 ## Regenerar os dados
 

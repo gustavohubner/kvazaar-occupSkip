@@ -197,6 +197,17 @@ table.heat td { font-variant-numeric: tabular-nums; }
 #tooltip .tt-title { font-weight: 700; margin-bottom: 3px; }
 
 /* ----------------------------- pareto ---------------------------- */
+.pareto-warn {
+  border: 1px solid #fcd34d;
+  border-left: 4px solid #d97706;
+  background: #fffbeb;
+  color: #78350f;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
 .pareto-decision {
   border-left: 4px solid var(--accent);
   background: #f8fafc;

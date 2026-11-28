@@ -170,6 +170,8 @@
         </div>
       </div>
 
+      <div id="pareto-warning" class="pareto-warn" hidden></div>
+
       <div class="card">
         <div class="card-head">
           <h3 id="pareto-title"></h3>
@@ -184,7 +186,7 @@
         <div class="card">
           <h3>Configurações nesta célula</h3>
           <div class="scroll"><table id="pareto-table" class="data"></table></div>
-          <p class="hint">T% positivo = mais rápido; BD% negativo = menos bits a qualidade igual. ΔQ é descritivo e não entra na decisão, porque o BD-rate já é medido a qualidade constante.</p>
+          <p class="hint" id="pareto-table-note"></p>
         </div>
         <div class="card">
           <h3>Decisão</h3>

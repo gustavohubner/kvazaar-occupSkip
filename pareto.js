@@ -13,6 +13,10 @@ var MODES = ['ra', 'ai'];
 var B_DEFAULT = 1000;
 var MIN_OVERLAP_DB = 0.5;
 var MAX_U8 = 255;
+var PX_FIELD = {
+  y: 'pixels_global', occupied_y: 'pixels_occupied', empty_y: 'pixels_empty'
+};
+var REGION_DEFAULT = 'occupied_y';
 // Diferenca de T% abaixo disto e empate: decide o menor BD%. A menor
 // semi-largura de IC95% da suite e 0,12 p.p., entao 0,05 p.p. e ruido.
 var TIE_TOL_PCT = 0.05;
@@ -40,9 +44,9 @@ function fillsOf(D) {
 function repsWall(cell) {
   return cell.time_s.reps.map(function (r) { return r.wall; });
 }
-function pxOf(D, seq, mode, fill) {
+function pxOf(D, seq, mode, fill, region) {
   var w = D.pixel_weights[seq + '|' + mode + '|' + fill];
-  return (w && w.pixels_occupied) || 1;
+  return (w && w[PX_FIELD[region] || PX_FIELD[REGION_DEFAULT]]) || 1;
 }
 
 /* --------------------------- estatistica --------------------------- */
@@ -193,6 +197,7 @@ function computeCell(D, opts) {
   var fill = opts.fill || fillsOf(D)[0];
   var speed = opts.speed;
   var mode = opts.mode;
+  var region = PX_FIELD[opts.region] ? opts.region : REGION_DEFAULT;
   var B = opts.B || B_DEFAULT;
   var seqs = seqsOf(D), rates = ratesOf(D), fills = fillsOf(D);
   var timeFills = plane === 'geometry' ? fills : [fill];
@@ -220,8 +225,8 @@ function computeCell(D, opts) {
       var b = get(D, fill, speed, mode, plane, seq, rate, 'base');
       if (!b) return;
       baseBytes += b.bytes;
-      baseRows.push({px: pxOf(D, seq, mode, fill),
-        psnr: b.psnr_db.occupied_y});
+      baseRows.push({px: pxOf(D, seq, mode, fill, region),
+        psnr: b.psnr_db[region]});
     });
   });
   var basePsnr = energyPsnr(baseRows);
@@ -258,11 +263,11 @@ function computeCell(D, opts) {
         var bc = get(D, fill, speed, mode, plane, seq, rate, 'base');
         var cc = get(D, fill, speed, mode, plane, seq, rate, cfg);
         if (!bc || !cc) return;
-        bp.push([bc.psnr_db.occupied_y, Math.log(bc.bytes)]);
-        cp.push([cc.psnr_db.occupied_y, Math.log(cc.bytes)]);
+        bp.push([bc.psnr_db[region], Math.log(bc.bytes)]);
+        cp.push([cc.psnr_db[region], Math.log(cc.bytes)]);
         cfgBytes += cc.bytes;
-        cfgRows.push({px: pxOf(D, seq, mode, fill),
-          psnr: cc.psnr_db.occupied_y});
+        cfgRows.push({px: pxOf(D, seq, mode, fill, region),
+          psnr: cc.psnr_db[region]});
       });
       var bd = bdRate(bp, cp);
       var bdLin = bdRateLinear(bp, cp);
@@ -303,7 +308,7 @@ function computeCell(D, opts) {
   });
 
   return {
-    cell: {plane: plane, fill: fill, speed: speed, mode: mode},
+    cell: {plane: plane, fill: fill, speed: speed, mode: mode, region: region},
     base: {timeS: baseTime, bytes: baseBytes, psnr: basePsnr},
     configs: configs,
     front: configs.filter(function (c) { return c.pareto; })
@@ -391,7 +396,7 @@ function computeAll(D, opts) {
     return computeCell(D, {
       plane: c.plane,
       fill: c.fill === '*' ? fillsOf(D)[0] : c.fill,
-      speed: c.speed, mode: c.mode, B: opts.B
+      speed: c.speed, mode: c.mode, region: opts.region, B: opts.B
     });
   });
 }

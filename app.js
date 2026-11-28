@@ -700,7 +700,6 @@ function initControls() {
   document.getElementById('pareto-open-rd').onclick = function () {
     var fill = paretoFillNow();
     state.fills = {}; state.fills[fill] = true;
-    state.region = 'occupied_y';
     syncChips('fill-chips', 'fills', false);
     syncSeg('seg-region');
     switchTab('rd');
@@ -1547,10 +1546,11 @@ function paretoFillNow() {
 }
 function paretoResult() {
   var fill = paretoFillNow();
-  var key = [state.plane, fill, state.speed, state.mode].join('|');
+  var key = [state.plane, fill, state.speed, state.mode, state.region].join('|');
   if (!paretoCellCache[key]) {
     paretoCellCache[key] = PARETO.computeCell(D, {
-      plane: state.plane, fill: fill, speed: state.speed, mode: state.mode
+      plane: state.plane, fill: fill, speed: state.speed, mode: state.mode,
+      region: state.region
     });
   }
   return paretoCellCache[key];
@@ -1561,14 +1561,17 @@ function signed(v, nd) {
   return v > 0 ? '+' + s : s;
 }
 function ensureParetoSummary() {
-  if (paretoSummary.done || paretoSummary.busy) return;
-  paretoSummary = {results: [], busy: true, done: false};
+  if (paretoSummary.region === state.region &&
+      (paretoSummary.done || paretoSummary.busy)) return;
+  var summary = {results: [], busy: true, done: false, region: state.region};
+  paretoSummary = summary;
   var cells = PARETO.cellsOf(D);
   var i = 0;
   function step() {
+    if (paretoSummary !== summary) return; // região mudou: outro loop assumiu
     if (i >= cells.length) {
-      paretoSummary.busy = false;
-      paretoSummary.done = true;
+      summary.busy = false;
+      summary.done = true;
       if (state.tab === 'pareto') {
         renderParetoSummary();
         renderParetoMethod();
@@ -1577,16 +1580,17 @@ function ensureParetoSummary() {
     }
     var c = cells[i++];
     var fill = c.fill === '*' ? FILL_METHODS[0] : c.fill;
-    var key = [c.plane, fill, c.speed, c.mode].join('|');
+    var key = [c.plane, fill, c.speed, c.mode, summary.region].join('|');
     var r = paretoCellCache[key];
     try {
       if (!r) {
         r = PARETO.computeCell(D, {
-          plane: c.plane, fill: fill, speed: c.speed, mode: c.mode
+          plane: c.plane, fill: fill, speed: c.speed, mode: c.mode,
+          region: summary.region
         });
         paretoCellCache[key] = r;
       }
-      paretoSummary.results.push(r);
+      summary.results.push(r);
     } catch (err) {
       if (window.console) console.error('pareto', c, err);
     }
@@ -1595,21 +1599,55 @@ function ensureParetoSummary() {
   }
   setTimeout(step, 0);
 }
-function paretoSummaryStats() {
-  var minOv = Infinity, maxPL = 0, n = 0;
-  paretoSummary.results.forEach(function (res) {
+function paretoStatsOf(results) {
+  var minOv = Infinity, maxPL = 0, n = 0, valid = 0, bad = 0, badCfgs = 0;
+  results.forEach(function (res) {
     res.configs.forEach(function (c) {
       if (c.config === 'base') return;
       n++;
+      if (c.bdPct === null) { badCfgs++; return; }
       if (isFinite(c.overlapMin)) minOv = Math.min(minOv, c.overlapMin);
       for (var i = 0; i < c.bdBySeq.length; i++) {
         var a = c.bdBySeq[i].bd;
         var b = c.bdLinearBySeq[i] ? c.bdLinearBySeq[i].bd : null;
-        if (a !== null && b !== null) maxPL = Math.max(maxPL, Math.abs(a - b));
+        if (a === null) { bad++; continue; }
+        valid++;
+        if (b !== null) maxPL = Math.max(maxPL, Math.abs(a - b));
       }
     });
   });
-  return {minOv: minOv, maxPL: maxPL, n: n, curves: n * 5};
+  return {minOv: minOv, maxPL: maxPL, n: n, valid: valid, bad: bad,
+    badCfgs: badCfgs, curves: n * 5};
+}
+function paretoSummaryStats() {
+  return paretoStatsOf(paretoSummary.results);
+}
+function renderParetoWarning(res) {
+  var box = document.getElementById('pareto-warning');
+  if (res.cell.region === 'occupied_y') {
+    box.hidden = true;
+    clear(box);
+    return;
+  }
+  var global = paretoSummary.done &&
+    paretoSummary.region === res.cell.region ? paretoSummaryStats() : null;
+  var st = global || paretoStatsOf([res]);
+  var escopo = global ? 'nas 20 células' : 'nesta célula';
+  box.hidden = false;
+  var txt = '<b>Cuidado com ' + esc(REGION_NAME[res.cell.region]) +
+    '.</b> Nesta região as curvas RD são ruidosas: ' + escopo + ', ' +
+    st.valid + ' de ' + st.curves + ' curvas deram BD-rate' +
+    (st.badCfg ? ' e ' + st.badCfg + ' comparações ficaram sem BD-rate' : '') +
+    '; a sobreposição mínima de PSNR é ' + fmt(st.minOv, 2) + ' dB e ' +
+    'PCHIP × interpolação linear difere em até ' + fmt(st.maxPL, 1) +
+    ' pontos percentuais.';
+  if (st.maxPL > 10) {
+    txt += ' <b>BD-rate instável nesta região</b>: confira as curvas antes de ' +
+      'usar a escolha como conclusão.';
+  }
+  txt += ' O relatório e o padrão desta aba usam Y ocupado, onde a diferença ' +
+    'máxima é 1,64 p.p.';
+  box.innerHTML = txt;
 }
 function renderPareto() {
   if (!PARETO) {
@@ -1623,6 +1661,7 @@ function renderPareto() {
     'A geometria é idêntica nos 4 preenchimentos; o tempo é agregado.' : '';
   var res = paretoResult();
   var sel = PARETO.select(res, state.paretoThreshold, state.paretoCI);
+  renderParetoWarning(res);
   var cell = sel.cell;
   var geo = cell.plane === 'geometry';
   document.getElementById('pareto-title').textContent =
@@ -1631,10 +1670,12 @@ function renderPareto() {
   document.getElementById('pareto-subtitle').textContent =
     (geo ? 'tempo agregado nos 4 preenchimentos' :
       'preenchimento ' + fillLabel(cell.fill)) +
+    ' · PSNR ' + REGION_NAME[cell.region] +
     ' · 5 sequências × 5 taxas · 10 repetições';
   document.getElementById('pareto-hint').textContent =
     'Célula: ' + (geo ? 'geometria' : 'atributo/' + fillLabel(cell.fill)) +
-    ' · ' + cell.speed + '/' + cell.mode + ' · referência base · ' +
+    ' · ' + cell.speed + '/' + cell.mode + ' · PSNR ' +
+    REGION_NAME[cell.region] + ' · referência base · ' +
     (sel.winner === 'base' ? 'decisão: manter o base' :
       'decisão: adotar ' + sel.winner);
   renderParetoChart(sel);
@@ -1808,7 +1849,8 @@ function paretoTip(p) {
   var s = '<div class="tt-title">' + esc(cfgLabel(p.config)) + '</div>';
   s += 'T%: <b>' + signed(p.tPct, 2) + '%</b> [' +
     fmt(p.ciLow, 2) + '; ' + fmt(p.ciHigh, 2) + ']<br>';
-  s += 'BD-rate: <b>' + signed(p.bdPct, 2) + '%</b><br>';
+  s += 'BD-rate (' + esc(REGION_NAME[p.region || state.region]) +
+    '): <b>' + signed(p.bdPct, 2) + '%</b><br>';
   s += 'ΔQ ocupado: ' + signed(p.dqDb, 3) + ' dB<br>';
   s += 'Δbits: ' + signed(p.bitsPct, 2) + '%<br>';
   s += (p.pareto ? 'na frente de Pareto' : 'dominada') +
@@ -1879,6 +1921,20 @@ function renderParetoTable(sel) {
         'no mesmo QP.';
       tb.appendChild(tr);
     });
+  var note = 'T% positivo = mais rápido; BD% negativo = menos bits a ' +
+    'qualidade igual. ΔQ usa a PSNR ' + REGION_NAME[sel.cell.region] +
+    ' e é descritivo: não entra na decisão, porque o BD-rate já é medido a ' +
+    'qualidade constante.';
+  var nulls = sel.configs.filter(function (c) {
+    return c.config !== 'base' && c.bdPct === null;
+  }).length;
+  if (nulls) {
+    note += ' ' + nulls + ' config(ões) sem BD-rate em ' +
+      REGION_NAME[sel.cell.region] + ': curva RD não monotônica em alguma ' +
+      'sequência ou sobreposição de PSNR < 0,5 dB. Foram excluídas, ' +
+      'sem extrapolação.';
+  }
+  document.getElementById('pareto-table-note').textContent = note;
 }
 function renderParetoDecision(sel) {
   var box = document.getElementById('pareto-decision');
@@ -1960,6 +2016,8 @@ function renderParetoSeqTable(sel) {
     if (b.bd === null) {
       tr.innerHTML = '<td>' + esc(b.seq) + '</td>' +
         '<td class="num">—</td><td></td>';
+      tr.title = 'BD-rate indisponível: curva RD não monotônica em ' +
+        REGION_NAME[state.region] + ' ou sobreposição de PSNR < 0,5 dB.';
     } else {
       var d = b.bd - row.bdPct;
       tr.innerHTML = '<td>' + esc(b.seq) + '</td>' +
@@ -2076,7 +2134,7 @@ function renderParetoMethod() {
     'preenchimento).');
   line('<b>Unidade.</b> 20 células: 4 de geometria (velocidade × modo) e ' +
     '16 de atributo (preenchimento × velocidade × modo). Na geometria, ' +
-    'bytes e PSNR ocupado são idênticos nos 4 preenchimentos; só o tempo ' +
+    'bytes e PSNR são idênticos nos 4 preenchimentos; só o tempo ' +
     'varia entre execuções, então o tempo é agregado nas 4 repetições ' +
     '(40 medições por sequência/taxa). Contar as 16 como independentes ' +
     'transformaria ruído de tempo em efeito de preenchimento.');
@@ -2085,11 +2143,15 @@ function renderParetoMethod() {
     'sequência × taxa. O IC95% vem de bootstrap das repetições dentro de ' +
     'cada célula (1.000 reamostragens, semente fixa). Positivo = mais ' +
     'rápido.');
-  line('<b>BD% — BD-rate.</b> Por sequência, com os 5 pontos (PSNR ' +
-    'ocupada, log(bytes)): interpolação cúbica monotônica (PCHIP), ' +
+  line('<b>BD% — BD-rate.</b> Região de PSNR: <b>' +
+    esc(REGION_NAME[state.region]) + '</b> (selecionada no menu lateral; ' +
+    'o padrão é Y ocupado). Por sequência, com os 5 pontos (PSNR dessa ' +
+    'região, log(bytes)): interpolação cúbica monotônica (PCHIP), ' +
     'integração no intervalo de PSNR comum às duas curvas e média ' +
     'geométrica das 5 sequências. Negativo = menos bits para a mesma ' +
-    'qualidade. A qualidade já está dentro do BD-rate; por isso o ΔPSNR ' +
+    'qualidade. Se a curva RD não for monotônica em alguma sequência, ' +
+    'o BD-rate é marcado como indisponível — não se inventa valor. ' +
+    'A qualidade já está dentro do BD-rate; por isso o ΔPSNR ' +
     'no mesmo QP aparece só como descrição e não entra na decisão.');
   line('<b>Seleção.</b> (1) frente de Pareto em (T%, BD%): A domina B se ' +
     'T_A ≥ T_B e BD_A ≤ BD_B, com pelo menos uma desigualdade estrita; ' +
@@ -2098,19 +2160,26 @@ function renderParetoMethod() {
     'abaixo de 0,05 p.p. resolvido pelo menor BD% — a mediana de 10 ' +
     'repetições não distingue menos que isso, e a menor semi-largura de ' +
     'IC95% da suíte é 0,12 p.p.; (4) se nenhuma cumprir, mantém o base.');
-  var st = paretoSummary.done ? paretoSummaryStats() : null;
+  var st = paretoSummary.region === state.region && paretoSummary.done ?
+    paretoSummaryStats() : null;
   if (st) {
-    line('<b>Validação.</b> Sobreposição de PSNR entre as curvas: mínimo ' +
-      'de ' + fmt(st.minOv, 2) + ' dB nas ' + st.curves + ' curvas (' +
-      st.n + ' comparações × 5 sequências) — o BD-rate foi aplicável sem ' +
-      'fallback. PCHIP × interpolação linear: diferença máxima de ' +
-      fmt(st.maxPL, 2) + ' pontos percentuais.');
+    var val = '<b>Validação (' + esc(REGION_NAME[state.region]) + ').</b> ' +
+      st.valid + ' de ' + st.curves + ' curvas RD válidas';
+    if (st.bad) val += ' (' + st.bad + ' descartadas por curva não ' +
+      'monotônica ou sobreposição < 0,5 dB)';
+    val += '; sobreposição mínima de PSNR ' + fmt(st.minOv, 2) + ' dB. ' +
+      'PCHIP × interpolação linear: diferença máxima de ' +
+      fmt(st.maxPL, 2) + ' pontos percentuais.';
+    if (st.badCfgs) val += ' ' + st.badCfgs + ' comparações de config não ' +
+      'geraram BD-rate da célula e ficaram fora da frente.';
+    line(val);
   } else {
-    line('<b>Validação.</b> calculando sobreposição de PSNR e diferença ' +
-      'PCHIP × linear…');
+    line('<b>Validação.</b> calculando sobreposição de PSNR, curvas ' +
+      'válidas e diferença PCHIP × linear…');
   }
-  line('<b>Limitações.</b> A qualidade é o Y da região ocupada (a única ' +
-    'medida disponível nesta suíte); não há D1/D2 nem PSNR de cor. O ' +
+  line('<b>Limitações.</b> A qualidade é a PSNR da região selecionada ' +
+    '(Y global, Y ocupado ou Y vazio); o padrão é Y ocupado, que é a ' +
+    'região usada no relatório. Não há D1/D2 nem PSNR de cor. O ' +
     'BD-rate resume 5 QPs e o tempo é parede (wall), mediana de 10 ' +
     'repetições. A generalização vale para as 5 sequências e o workload ' +
     'medidos.');
@@ -2155,9 +2224,10 @@ function renderAbout() {
     });
   h3('Escolha por célula (BD-rate × tempo)');
   p('A aba Pareto calcula no navegador, a partir das mesmas células, o ' +
-    'BD-rate sobre a PSNR ocupada e o ganho de tempo de cada configuração ' +
-    'contra o base. A unidade é 20 células: 4 de geometria e 16 de ' +
-    'atributo. Na geometria, bytes e PSNR são idênticos nos 4 ' +
+    'BD-rate sobre a PSNR da região selecionada no menu lateral (Y global, ' +
+    'Y ocupado ou Y vazio; padrão: Y ocupado) e o ganho de tempo de cada ' +
+    'configuração contra o base. A unidade é 20 células: 4 de geometria e ' +
+    '16 de atributo. Na geometria, bytes e PSNR são idênticos nos 4 ' +
     'preenchimentos; só o tempo varia, então ele é agregado nas 4 ' +
     'repetições.');
   p('A escolha não usa pesos: frente de Pareto em (T%, BD%), adota só ' +
