@@ -79,6 +79,7 @@
     <nav class="tabs" id="tabs" role="tablist">
       <button class="tab active" data-tab="rd" role="tab">Curvas RD</button>
       <button class="tab" data-tab="overview" role="tab">Visão geral</button>
+      <button class="tab" data-tab="pareto" role="tab">Pareto (BD × tempo)</button>
       <button class="tab" data-tab="tables" role="tab">Tabelas</button>
       <button class="tab" data-tab="time" role="tab">Tempos</button>
       <button class="tab" data-tab="about" role="tab">Sobre</button>
@@ -142,6 +143,78 @@
           <h3>Leitura rápida</h3>
           <div id="overview-notes" class="notes"></div>
         </div>
+      </div>
+    </section>
+
+    <!-- ========================= PARETO =========================== -->
+    <section class="panel" id="panel-pareto">
+      <div class="panel-head">
+        <div>
+          <h2>Frente de Pareto: BD-rate × tempo</h2>
+          <p class="hint" id="pareto-hint"></p>
+        </div>
+        <div class="tools">
+          <label>Preenchimento
+            <select id="pareto-fill"></select>
+          </label>
+          <label>Limite de BD-rate
+            <select id="pareto-threshold">
+              <option value="0">≤ 0% (não piorar)</option>
+              <option value="0.5">≤ 0,5%</option>
+              <option value="1">≤ 1%</option>
+              <option value="2">≤ 2%</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="pareto-ci" checked> IC95% do tempo &gt; 0</label>
+          <label class="check"><input type="checkbox" id="pareto-full-y"> escala completa em Y</label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3 id="pareto-title"></h3>
+          <span class="hint" id="pareto-subtitle"></span>
+        </div>
+        <svg id="pareto-svg" viewBox="0 0 980 520" role="img" aria-label="Frente de Pareto de BD-rate por ganho de tempo"></svg>
+        <div class="legend" id="pareto-legend"></div>
+        <p class="hint">X = ganho de tempo contra o base; Y = BD-rate sobre a PSNR ocupada (negativo = menos bits para a mesma qualidade). A área verde é a região desejável (mais rápido e menos bits). A linha tracejada liga a frente de Pareto; o anel marca a configuração escolhida pela regra.</p>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <h3>Configurações nesta célula</h3>
+          <div class="scroll"><table id="pareto-table" class="data"></table></div>
+          <p class="hint">T% positivo = mais rápido; BD% negativo = menos bits a qualidade igual. ΔQ é descritivo e não entra na decisão, porque o BD-rate já é medido a qualidade constante.</p>
+        </div>
+        <div class="card">
+          <h3>Decisão</h3>
+          <div id="pareto-decision"></div>
+          <h3 id="pareto-seq-title" style="margin-top:16px">BD-rate por sequência</h3>
+          <table id="pareto-seq-table" class="data"></table>
+          <div class="tools" style="margin-top:12px">
+            <button class="btn" id="pareto-open-rd">Abrir curvas RD desta célula</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>As 20 células — melhor configuração em cada caso</h3>
+          <span class="hint" id="pareto-cells-status"></span>
+        </div>
+        <div class="scroll-all"><table id="pareto-cells-table" class="data"></table></div>
+        <p class="hint">Clique numa linha para carregar a célula no gráfico. Geometria usa o tempo agregado dos 4 preenchimentos (bytes e PSNR são idênticos entre eles).</p>
+      </div>
+
+      <div class="card">
+        <h3>Sensibilidade ao limite de BD-rate</h3>
+        <table id="pareto-threshold-table" class="data"></table>
+        <p class="hint">O limite é uma política declarada, não um peso escondido. Com 0% só se adota quem não piora a curva RD; com 1% ou 2% o leitor aceita um pequeno aumento de bits em troca de tempo.</p>
+      </div>
+
+      <div class="card">
+        <h3>Como a escolha é feita</h3>
+        <div id="pareto-method" class="notes"></div>
       </div>
     </section>
 
@@ -261,6 +334,7 @@
 
 <div id="tooltip" role="tooltip"></div>
 <script src="data.js"></script>
+<script src="pareto.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

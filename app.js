@@ -5,6 +5,7 @@
 
 var D = window.RD_DATA;
 if (!D) { document.body.textContent = 'data.js não carregou.'; return; }
+var PARETO = window.PARETO;
 
 var SVG_NS = 'http://www.w3.org/2000/svg';
 var SEQS = D.axes.sequences;
@@ -84,7 +85,9 @@ var state = {
   cellPage: 0, cellSearch: '',
   repCfg: 'skip', repSeq: 'longdress', repRate: 'r4',
   repFill: FILL_METHODS[0], repField: 'user',
-  timeYMode: 'absolute', timeSeq: 'avg', timeField: 'user'
+  timeYMode: 'absolute', timeSeq: 'avg', timeField: 'user',
+  paretoFill: FILL_METHODS[0], paretoThreshold: 0, paretoCI: true,
+  paretoFullY: false
 };
 rebuildCells();
 
@@ -615,6 +618,8 @@ function initControls() {
     state.timeSeq = 'avg'; state.timeYMode = 'absolute'; state.timeField = 'user';
     state.hidden = {}; state.heatMetric = 'bits'; state.aggCompare = 'vs_base';
     state.fills = cloneSet(FILL_METHODS); state.repFill = FILL_METHODS[0];
+    state.paretoFill = FILL_METHODS[0];
+    state.paretoThreshold = 0; state.paretoCI = true; state.paretoFullY = false;
     rebuildCells();
     state.cellSearch = ''; state.cellPage = 0;
     state.cellSort = {col: 'seq', dir: 1};
@@ -628,6 +633,9 @@ function initControls() {
     document.getElementById('heat-metric').value = 'bits';
     document.getElementById('agg-compare').value = 'vs_base';
     document.getElementById('cell-search').value = '';
+    document.getElementById('pareto-threshold').value = '0';
+    document.getElementById('pareto-ci').checked = true;
+    document.getElementById('pareto-full-y').checked = false;
     render();
   };
 
@@ -678,6 +686,26 @@ function initControls() {
     state.repFill = e.target.value; render(); };
   document.getElementById('rep-field').onchange = function (e) {
     state.repField = e.target.value; render(); };
+
+  fillSelect(document.getElementById('pareto-fill'), FILL_METHODS,
+    state.paretoFill, fillLabel);
+  document.getElementById('pareto-fill').onchange = function (e) {
+    state.paretoFill = e.target.value; render(); };
+  document.getElementById('pareto-threshold').onchange = function (e) {
+    state.paretoThreshold = Number(e.target.value); render(); };
+  document.getElementById('pareto-ci').onchange = function (e) {
+    state.paretoCI = e.target.checked; render(); };
+  document.getElementById('pareto-full-y').onchange = function (e) {
+    state.paretoFullY = e.target.checked; render(); };
+  document.getElementById('pareto-open-rd').onclick = function () {
+    var fill = paretoFillNow();
+    state.fills = {}; state.fills[fill] = true;
+    state.region = 'occupied_y';
+    syncChips('fill-chips', 'fills', false);
+    syncSeg('seg-region');
+    switchTab('rd');
+  };
+
   fillRepSelects();
 }
 
@@ -1510,6 +1538,587 @@ function renderTimeCurves() {
     (state.timeYMode === 'delta' ? 'Δ% contra o base' : 'segundos') + ')';
 }
 
+/* ---------------------------- pareto ------------------------------ */
+var paretoCellCache = {};
+var paretoSummary = {results: [], busy: false, done: false};
+
+function paretoFillNow() {
+  return state.plane === 'geometry' ? FILL_METHODS[0] : state.paretoFill;
+}
+function paretoResult() {
+  var fill = paretoFillNow();
+  var key = [state.plane, fill, state.speed, state.mode].join('|');
+  if (!paretoCellCache[key]) {
+    paretoCellCache[key] = PARETO.computeCell(D, {
+      plane: state.plane, fill: fill, speed: state.speed, mode: state.mode
+    });
+  }
+  return paretoCellCache[key];
+}
+function signed(v, nd) {
+  if (!isFinite(v)) return '—';
+  var s = fmt(v, nd);
+  return v > 0 ? '+' + s : s;
+}
+function ensureParetoSummary() {
+  if (paretoSummary.done || paretoSummary.busy) return;
+  paretoSummary = {results: [], busy: true, done: false};
+  var cells = PARETO.cellsOf(D);
+  var i = 0;
+  function step() {
+    if (i >= cells.length) {
+      paretoSummary.busy = false;
+      paretoSummary.done = true;
+      if (state.tab === 'pareto') {
+        renderParetoSummary();
+        renderParetoMethod();
+      }
+      return;
+    }
+    var c = cells[i++];
+    var fill = c.fill === '*' ? FILL_METHODS[0] : c.fill;
+    var key = [c.plane, fill, c.speed, c.mode].join('|');
+    var r = paretoCellCache[key];
+    try {
+      if (!r) {
+        r = PARETO.computeCell(D, {
+          plane: c.plane, fill: fill, speed: c.speed, mode: c.mode
+        });
+        paretoCellCache[key] = r;
+      }
+      paretoSummary.results.push(r);
+    } catch (err) {
+      if (window.console) console.error('pareto', c, err);
+    }
+    if (state.tab === 'pareto') renderParetoSummary();
+    setTimeout(step, 0);
+  }
+  setTimeout(step, 0);
+}
+function paretoSummaryStats() {
+  var minOv = Infinity, maxPL = 0, n = 0;
+  paretoSummary.results.forEach(function (res) {
+    res.configs.forEach(function (c) {
+      if (c.config === 'base') return;
+      n++;
+      if (isFinite(c.overlapMin)) minOv = Math.min(minOv, c.overlapMin);
+      for (var i = 0; i < c.bdBySeq.length; i++) {
+        var a = c.bdBySeq[i].bd;
+        var b = c.bdLinearBySeq[i] ? c.bdLinearBySeq[i].bd : null;
+        if (a !== null && b !== null) maxPL = Math.max(maxPL, Math.abs(a - b));
+      }
+    });
+  });
+  return {minOv: minOv, maxPL: maxPL, n: n, curves: n * 5};
+}
+function renderPareto() {
+  if (!PARETO) {
+    document.getElementById('pareto-hint').textContent = 'pareto.js não carregou.';
+    return;
+  }
+  var fillSel = document.getElementById('pareto-fill');
+  fillSel.value = state.paretoFill;
+  fillSel.disabled = state.plane === 'geometry';
+  fillSel.title = state.plane === 'geometry' ?
+    'A geometria é idêntica nos 4 preenchimentos; o tempo é agregado.' : '';
+  var res = paretoResult();
+  var sel = PARETO.select(res, state.paretoThreshold, state.paretoCI);
+  var cell = sel.cell;
+  var geo = cell.plane === 'geometry';
+  document.getElementById('pareto-title').textContent =
+    (geo ? 'Geometria' : 'Atributo') + ' · ' + cell.speed.toUpperCase() +
+    ' · ' + cell.mode.toUpperCase();
+  document.getElementById('pareto-subtitle').textContent =
+    (geo ? 'tempo agregado nos 4 preenchimentos' :
+      'preenchimento ' + fillLabel(cell.fill)) +
+    ' · 5 sequências × 5 taxas · 10 repetições';
+  document.getElementById('pareto-hint').textContent =
+    'Célula: ' + (geo ? 'geometria' : 'atributo/' + fillLabel(cell.fill)) +
+    ' · ' + cell.speed + '/' + cell.mode + ' · referência base · ' +
+    (sel.winner === 'base' ? 'decisão: manter o base' :
+      'decisão: adotar ' + sel.winner);
+  renderParetoChart(sel);
+  renderParetoLegend();
+  renderParetoTable(sel);
+  renderParetoDecision(sel);
+  renderParetoSeqTable(sel);
+  renderParetoThresholdTable(sel);
+  renderParetoMethod();
+  ensureParetoSummary();
+  renderParetoSummary();
+}
+function renderParetoChart(sel) {
+  var svg = document.getElementById('pareto-svg');
+  clear(svg);
+  var W = 980, H = 520, m = {l: 78, r: 30, t: 30, b: 62};
+  var pts = sel.configs.filter(function (c) { return c.bdPct !== null; });
+  if (!pts.length) {
+    svgText(svg, W / 2, H / 2, 'Sem dados para esta célula.',
+      'axis-label', 'middle');
+    return;
+  }
+  var cap = state.paretoFullY ? Infinity : 8;
+  function clamp(v) { return Math.max(-cap, Math.min(cap, v)); }
+  var xs = pts.map(function (p) { return p.tPct; }).concat([0]);
+  var ys = pts.map(function (p) { return clamp(p.bdPct); }).concat([0]);
+  var dx = domain(xs, 0.10), dy = domain(ys, 0.12);
+  var sx = function (v) {
+    return m.l + (v - dx[0]) / (dx[1] - dx[0]) * (W - m.l - m.r);
+  };
+  var sy = function (v) {
+    return H - m.b - (v - dy[0]) / (dy[1] - dy[0]) * (H - m.t - m.b);
+  };
+
+  var zx = sx(0), zy = sy(0);
+  if (zx < W - m.r && zy < H - m.b) {
+    el('rect', {x: zx, y: zy, width: W - m.r - zx, height: H - m.b - zy,
+      fill: '#0f9d58', 'fill-opacity': 0.06}, svg);
+  }
+  if (zx > m.l && zy > m.t) {
+    el('rect', {x: m.l, y: m.t, width: zx - m.l, height: zy - m.t,
+      fill: '#d64545', 'fill-opacity': 0.05}, svg);
+  }
+
+  niceTicks(dx[0], dx[1]).forEach(function (v) {
+    if (v < dx[0] || v > dx[1]) return;
+    var x = sx(v);
+    el('line', {x1: x, x2: x, y1: m.t, y2: H - m.b, 'class': 'grid'}, svg);
+    svgText(svg, x, H - m.b + 16, signed(v, 1) + '%', 'tick-text', 'middle');
+  });
+  niceTicks(dy[0], dy[1]).forEach(function (v) {
+    if (v < dy[0] || v > dy[1]) return;
+    var y = sy(v);
+    el('line', {x1: m.l, x2: W - m.r, y1: y, y2: y, 'class': 'grid'}, svg);
+    svgText(svg, m.l - 8, y + 3, signed(v, 1) + '%', 'tick-text', 'end');
+  });
+  el('line', {x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b,
+    'class': 'axis'}, svg);
+  el('line', {x1: m.l, x2: m.l, y1: m.t, y2: H - m.b, 'class': 'axis'}, svg);
+  el('line', {x1: zx, x2: zx, y1: m.t, y2: H - m.b, 'class': 'zero'}, svg);
+  el('line', {x1: m.l, x2: W - m.r, y1: zy, y2: zy, 'class': 'zero'}, svg);
+  svgText(svg, (m.l + W - m.r) / 2, H - 18,
+    'Ganho de tempo contra o base (%)', 'axis-label', 'middle');
+  var yl = svgText(svg, 17, (m.t + H - m.b) / 2,
+    'BD-rate contra o base (%) — negativo = menos bits',
+    'axis-label', 'middle');
+  yl.setAttribute('transform', 'rotate(-90 17 ' + ((m.t + H - m.b) / 2) + ')');
+
+  var front = pts.filter(function (p) { return p.pareto; })
+    .sort(function (a, b) { return a.tPct - b.tPct; });
+  if (front.length > 1) {
+    var d = front.map(function (p, i) {
+      return (i ? 'L' : 'M') + sx(p.tPct).toFixed(1) + ',' +
+        sy(clamp(p.bdPct)).toFixed(1);
+    }).join(' ');
+    el('path', {d: d, fill: 'none', stroke: '#475467', 'stroke-width': 1.8,
+      'stroke-dasharray': '6 4', 'stroke-linejoin': 'round',
+      'data-anim-key': 'pareto|front'}, svg);
+  }
+
+  var labels = [];
+  pts.forEach(function (p) {
+    var clipped = p.bdPct > cap || p.bdPct < -cap;
+    var cx = sx(p.tPct), cy = sy(clamp(p.bdPct));
+    if (p.selected) {
+      el('circle', {cx: cx, cy: cy, r: 15, fill: 'none',
+        stroke: COLORS[p.config], 'stroke-width': 2.2,
+        'stroke-dasharray': '5 3', 'data-anim-key': 'pareto|ring'}, svg);
+    }
+    var dot;
+    if (clipped) {
+      dot = clippedMarker(cx, cy, 7, COLORS[p.config], p.bdPct > 0, svg);
+      dot.setAttribute('data-anim-key', 'pareto|pt|' + p.config);
+    } else {
+      dot = markerNode('circle', cx, cy, p.selected ? 8.5 : 6.5,
+        COLORS[p.config], 'pareto|pt|' + p.config, svg);
+    }
+    dot.style.cursor = 'pointer';
+    bindTip(dot, paretoTip(p));
+    var txt = p.config + (clipped ? ' (' + signed(p.bdPct, 1) + '%)' : '');
+    if (p.selected) txt = '★ ' + txt;
+    labels.push({cx: cx, cy: cy, text: txt, color: COLORS[p.config],
+      bold: p.selected});
+  });
+  placeParetoLabels(svg, labels, m, W, H);
+  if (!state.paretoFullY && pts.some(function (p) {
+    return p.bdPct > 8 || p.bdPct < -8;
+  })) {
+    svgText(svg, W - m.r, m.t + 12,
+      'triângulos = BD% fora de ±8% (valor real no rótulo)',
+      'pareto-note', 'end');
+  }
+}
+function clippedMarker(cx, cy, r, color, up, parent) {
+  var pts = up ?
+    [[cx, cy - r], [cx + r * 0.9, cy + r * 0.7],
+      [cx - r * 0.9, cy + r * 0.7]] :
+    [[cx, cy + r], [cx + r * 0.9, cy - r * 0.7],
+      [cx - r * 0.9, cy - r * 0.7]];
+  return el('polygon', {
+    points: pts.map(function (p) {
+      return p[0].toFixed(1) + ',' + p[1].toFixed(1);
+    }).join(' '),
+    fill: color, stroke: '#fff', 'stroke-width': 1.5
+  }, parent);
+}
+function placeParetoLabels(svg, labels, m, W, H) {
+  var boxes = [];
+  labels.slice().sort(function (a, b) {
+    return (b.bold ? 1 : 0) - (a.bold ? 1 : 0);
+  }).forEach(function (l) {
+    var w = 7.2 * l.text.length + 8, h = 15;
+    var cands = [
+      [l.cx + 11, l.cy - 8, 'start'],
+      [l.cx - 11, l.cy - 8, 'end'],
+      [l.cx + 11, l.cy + 16, 'start'],
+      [l.cx - 11, l.cy + 16, 'end'],
+      [l.cx, l.cy - 13, 'middle'],
+      [l.cx, l.cy + 21, 'middle']
+    ];
+    var best = null;
+    for (var i = 0; i < cands.length; i++) {
+      var c = cands[i];
+      var bx = c[2] === 'start' ? c[0] :
+        (c[2] === 'end' ? c[0] - w : c[0] - w / 2);
+      var by = c[1] - 12;
+      if (bx < m.l + 2 || bx + w > W - m.r - 2 ||
+          by < m.t + 2 || by + h > H - m.b - 2) continue;
+      var hit = boxes.some(function (b) {
+        return !(bx + w < b.x || b.x + b.w < bx ||
+                 by + h < b.y || b.y + b.h < by);
+      });
+      if (!hit) {
+        best = {x: c[0], y: c[1], anchor: c[2], bx: bx, by: by};
+        break;
+      }
+    }
+    if (!best) {
+      var c0 = cands[0];
+      best = {x: c0[0], y: c0[1], anchor: c0[2],
+        bx: c0[0], by: c0[1] - 12};
+    }
+    boxes.push({x: best.bx, y: best.by, w: w, h: h});
+    var t = svgText(svg, best.x, best.y, l.text,
+      'pareto-label' + (l.bold ? ' sel' : ''), best.anchor);
+    t.setAttribute('fill', l.color);
+    if (l.bold) t.setAttribute('font-weight', '700');
+  });
+}
+function paretoTip(p) {
+  var s = '<div class="tt-title">' + esc(cfgLabel(p.config)) + '</div>';
+  s += 'T%: <b>' + signed(p.tPct, 2) + '%</b> [' +
+    fmt(p.ciLow, 2) + '; ' + fmt(p.ciHigh, 2) + ']<br>';
+  s += 'BD-rate: <b>' + signed(p.bdPct, 2) + '%</b><br>';
+  s += 'ΔQ ocupado: ' + signed(p.dqDb, 3) + ' dB<br>';
+  s += 'Δbits: ' + signed(p.bitsPct, 2) + '%<br>';
+  s += (p.pareto ? 'na frente de Pareto' : 'dominada') +
+    (p.selected ? ' · <b>escolhida</b>' : '');
+  return s;
+}
+function renderParetoLegend() {
+  var box = document.getElementById('pareto-legend');
+  clear(box);
+  CFGS.forEach(function (cfg) {
+    var s = document.createElement('span');
+    s.className = 'pareto-static';
+    var sw = document.createElement('span');
+    sw.className = 'swatch';
+    sw.style.background = COLORS[cfg];
+    s.appendChild(sw);
+    s.appendChild(document.createTextNode(cfg));
+    box.appendChild(s);
+  });
+  var f = document.createElement('span');
+  f.className = 'pareto-static';
+  f.innerHTML = '<span class="dash"></span>frente de Pareto';
+  box.appendChild(f);
+  var r = document.createElement('span');
+  r.className = 'pareto-static';
+  r.innerHTML = '<span class="ring"></span>escolhida pela regra';
+  box.appendChild(r);
+}
+function renderParetoTable(sel) {
+  var t = document.getElementById('pareto-table');
+  clear(t);
+  var thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>config</th><th>T%</th><th>IC95% T%</th>' +
+    '<th>BD%</th><th>ΔQ dB</th><th>Δbits%</th><th>frente</th>' +
+    '<th>regra</th></tr>';
+  t.appendChild(thead);
+  var tb = document.createElement('tbody');
+  t.appendChild(tb);
+  sel.configs.slice().sort(function (a, b) { return b.tPct - a.tPct; })
+    .forEach(function (c) {
+      var tr = document.createElement('tr');
+      if (c.config === 'base') tr.className = 'base-row';
+      if (c.selected) tr.className += ' selected';
+      var tag = '';
+      if (c.selected) tag = '<span class="pareto-tag adopt">adotar</span>';
+      else if (c.config === 'base' && sel.winner === 'base') {
+        tag = '<span class="pareto-tag keep">manter</span>';
+      }
+      tr.innerHTML =
+        '<td>' + esc(c.config) + '</td>' +
+        '<td class="num ' +
+          (c.tPct > 0 ? 'good' : c.tPct < 0 ? 'bad' : '') + '">' +
+          signed(c.tPct, 2) + '</td>' +
+        '<td class="num">[' + fmt(c.ciLow, 2) + '; ' +
+          fmt(c.ciHigh, 2) + ']</td>' +
+        '<td class="num ' +
+          (c.bdPct < 0 ? 'good' : c.bdPct > 0 ? 'bad' : '') + '">' +
+          signed(c.bdPct, 3) + '</td>' +
+        '<td class="num ' +
+          (c.dqDb < 0 ? 'good' : c.dqDb > 0 ? 'bad' : '') + '">' +
+          signed(c.dqDb, 3) + '</td>' +
+        '<td class="num ' +
+          (c.bitsPct < 0 ? 'good' : c.bitsPct > 0 ? 'bad' : '') + '">' +
+          signed(c.bitsPct, 2) + '</td>' +
+        '<td>' + (c.pareto ? '✓' : '') + '</td>' +
+        '<td>' + tag + '</td>';
+      tr.title = 'BD% negativo = menos bits; ΔQ positivo = perda de PSNR ' +
+        'no mesmo QP.';
+      tb.appendChild(tr);
+    });
+}
+function renderParetoDecision(sel) {
+  var box = document.getElementById('pareto-decision');
+  clear(box);
+  var w = sel.winnerRow;
+  var d = document.createElement('div');
+  d.className = 'pareto-decision';
+  var k = document.createElement('div');
+  k.className = 'decision-kicker';
+  k.textContent = 'Regra aplicada';
+  d.appendChild(k);
+  var main = document.createElement('div');
+  main.className = 'decision-main';
+  main.innerHTML = w ? 'Adotar <b>' + esc(w.config) + '</b>' :
+    'Manter <b>base</b>';
+  d.appendChild(main);
+  var p = document.createElement('p');
+  if (w) {
+    p.innerHTML = 'T% = <b>' + signed(w.tPct, 2) + '%</b> (IC95% ' +
+      fmt(w.ciLow, 2) + ' a ' + fmt(w.ciHigh, 2) + '), BD% = <b>' +
+      signed(w.bdPct, 2) + '%</b>, ΔQ = ' + signed(w.dqDb, 3) + ' dB.';
+  } else {
+    p.textContent = 'Nenhuma configuração passou em BD% ≤ ' +
+      fmt(sel.threshold, 1) + '% com ganho de tempo significativo.';
+  }
+  d.appendChild(p);
+  box.appendChild(d);
+
+  var notes = document.createElement('div');
+  notes.className = 'notes';
+  function line(html) {
+    var n = document.createElement('div');
+    n.innerHTML = html;
+    notes.appendChild(n);
+  }
+  line('<b>Regra:</b> ' + esc(sel.rule) + '.');
+  line('<b>Base:</b> ' + fmt(sel.base.timeS, 1) + ' s, ' +
+    fmt(sel.base.bytes, 0) + ' bytes, ' + fmt(sel.base.psnr, 3) +
+    ' dB (PSNR ocupada).');
+  if (w) {
+    line('<b>Escolhida:</b> ' + fmt(w.timeS, 1) + ' s, ' +
+      fmt(sel.base.bytes * (1 + w.bitsPct / 100), 0) + ' bytes, ' +
+      fmt(sel.base.psnr - w.dqDb, 3) + ' dB.');
+  } else if (sel.bestCandidate) {
+    var b = sel.bestCandidate;
+    var why = b.bdPct > sel.threshold ?
+      'BD% ' + signed(b.bdPct, 2) + '% acima do limite de ' +
+        fmt(sel.threshold, 1) + '%' :
+      'IC95% do tempo [' + fmt(b.ciLow, 2) + '; ' + fmt(b.ciHigh, 2) +
+        '] inclui zero';
+    line('<b>Melhor candidato:</b> ' + esc(b.config) + ' — T% ' +
+      signed(b.tPct, 2) + '%, BD% ' + signed(b.bdPct, 2) +
+      '%, descartado porque ' + why + '.');
+  }
+  box.appendChild(notes);
+}
+function renderParetoSeqTable(sel) {
+  var t = document.getElementById('pareto-seq-table');
+  clear(t);
+  var title = document.getElementById('pareto-seq-title');
+  var row = sel.winnerRow || sel.bestCandidate;
+  if (!row) {
+    title.textContent = 'BD-rate por sequência';
+    var empty = document.createElement('tbody');
+    empty.innerHTML = '<tr><td>—</td></tr>';
+    t.appendChild(empty);
+    return;
+  }
+  title.textContent = 'BD-rate por sequência — ' + row.config +
+    (sel.winnerRow ? '' : ' (melhor candidato)');
+  var thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>sequência</th><th>BD%</th>' +
+    '<th>vs média</th></tr>';
+  t.appendChild(thead);
+  var tb = document.createElement('tbody');
+  t.appendChild(tb);
+  row.bdBySeq.forEach(function (b) {
+    var tr = document.createElement('tr');
+    if (b.bd === null) {
+      tr.innerHTML = '<td>' + esc(b.seq) + '</td>' +
+        '<td class="num">—</td><td></td>';
+    } else {
+      var d = b.bd - row.bdPct;
+      tr.innerHTML = '<td>' + esc(b.seq) + '</td>' +
+        '<td class="num ' +
+          (b.bd < 0 ? 'good' : b.bd > 0 ? 'bad' : '') + '">' +
+          signed(b.bd, 2) + '</td>' +
+        '<td class="num">' + signed(d, 2) + '</td>';
+    }
+    tb.appendChild(tr);
+  });
+}
+function renderParetoThresholdTable(sel) {
+  var t = document.getElementById('pareto-threshold-table');
+  clear(t);
+  var thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>limite de BD-rate</th><th>config</th>' +
+    '<th>T%</th><th>BD%</th><th>decisão</th></tr>';
+  t.appendChild(thead);
+  var tb = document.createElement('tbody');
+  t.appendChild(tb);
+  var res = paretoResult();
+  [0, 0.5, 1, 2].forEach(function (thr) {
+    var s = PARETO.select(res, thr, state.paretoCI);
+    var w = s.winnerRow;
+    var tr = document.createElement('tr');
+    if (thr === state.paretoThreshold) tr.className = 'selected';
+    tr.innerHTML = '<td>' + fmt(thr, 1) + '%</td>' +
+      '<td><b>' + esc(s.winner) + '</b></td>' +
+      '<td class="num">' + (w ? signed(w.tPct, 2) : '0,00') + '</td>' +
+      '<td class="num">' + (w ? signed(w.bdPct, 2) : '0,00') + '</td>' +
+      '<td>' + (s.winner === 'base' ?
+        '<span class="pareto-tag keep">manter</span>' :
+        '<span class="pareto-tag adopt">adotar</span>') + '</td>';
+    tb.appendChild(tr);
+  });
+}
+function renderParetoSummary() {
+  var t = document.getElementById('pareto-cells-table');
+  clear(t);
+  var thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>plano</th><th>preench.</th><th>vel.</th>' +
+    '<th>modo</th><th>config</th><th>T%</th><th>IC95% T%</th><th>BD%</th>' +
+    '<th>ΔQ dB</th><th>decisão</th></tr>';
+  t.appendChild(thead);
+  var tb = document.createElement('tbody');
+  t.appendChild(tb);
+  var results = paretoSummary.results;
+  results.forEach(function (res) {
+    var s = PARETO.select(res, state.paretoThreshold, state.paretoCI);
+    var c = res.cell;
+    var geo = c.plane === 'geometry';
+    var w = s.winnerRow;
+    var cur = c.plane === state.plane && c.speed === state.speed &&
+      c.mode === state.mode && (geo || c.fill === state.paretoFill);
+    var tr = document.createElement('tr');
+    tr.className = 'clickable' + (cur ? ' selected' : '');
+    var tPct = w ? w.tPct : 0, bd = w ? w.bdPct : 0, dq = w ? w.dqDb : 0;
+    var lo = w ? w.ciLow : 0, hi = w ? w.ciHigh : 0;
+    tr.innerHTML =
+      '<td>' + (geo ? 'geom' : 'atrib') + '</td>' +
+      '<td>' + (geo ? '—' : esc(fillLabel(c.fill))) + '</td>' +
+      '<td>' + c.speed.toUpperCase() + '</td>' +
+      '<td>' + c.mode.toUpperCase() + '</td>' +
+      '<td><b>' + esc(s.winner) + '</b></td>' +
+      '<td class="num ' +
+        (tPct > 0 ? 'good' : tPct < 0 ? 'bad' : '') + '">' +
+        signed(tPct, 2) + '</td>' +
+      '<td class="num">[' + fmt(lo, 2) + '; ' + fmt(hi, 2) + ']</td>' +
+      '<td class="num ' +
+        (bd < 0 ? 'good' : bd > 0 ? 'bad' : '') + '">' +
+        signed(bd, 2) + '</td>' +
+      '<td class="num">' + signed(dq, 3) + '</td>' +
+      '<td>' + (s.winner === 'base' ?
+        '<span class="pareto-tag keep">manter</span>' :
+        '<span class="pareto-tag adopt">adotar</span>') + '</td>';
+    if (!w && s.bestCandidate) {
+      tr.title = 'Melhor candidato: ' + s.bestCandidate.config +
+        ' (T% ' + signed(s.bestCandidate.tPct, 2) + '%, BD% ' +
+        signed(s.bestCandidate.bdPct, 2) + '%)';
+    }
+    tr.onclick = function () {
+      state.plane = c.plane;
+      state.speed = c.speed;
+      state.mode = c.mode;
+      if (!geo) state.paretoFill = c.fill;
+      syncSeg('seg-speed');
+      syncSeg('seg-mode');
+      syncSeg('seg-plane');
+      render();
+      document.getElementById('panel-pareto')
+        .scrollIntoView({behavior: 'smooth', block: 'start'});
+    };
+    tb.appendChild(tr);
+  });
+  if (!results.length) {
+    var tr0 = document.createElement('tr');
+    tr0.innerHTML = '<td colspan="10">calculando as 20 células…</td>';
+    tb.appendChild(tr0);
+  }
+  document.getElementById('pareto-cells-status').textContent =
+    paretoSummary.busy ? 'calculando… ' + results.length + '/20' :
+      (paretoSummary.done ? results.length + '/20 células' : '');
+}
+function renderParetoMethod() {
+  var box = document.getElementById('pareto-method');
+  clear(box);
+  function line(html) {
+    var d = document.createElement('div');
+    d.innerHTML = html;
+    box.appendChild(d);
+  }
+  line('<b>Referência.</b> base = kvazaar upstream 2.3.1 sem flags de ' +
+    'occupancy, na mesma célula (sequência, taxa, modo, velocidade, ' +
+    'preenchimento).');
+  line('<b>Unidade.</b> 20 células: 4 de geometria (velocidade × modo) e ' +
+    '16 de atributo (preenchimento × velocidade × modo). Na geometria, ' +
+    'bytes e PSNR ocupado são idênticos nos 4 preenchimentos; só o tempo ' +
+    'varia entre execuções, então o tempo é agregado nas 4 repetições ' +
+    '(40 medições por sequência/taxa). Contar as 16 como independentes ' +
+    'transformaria ruído de tempo em efeito de preenchimento.');
+  line('<b>T% — ganho de tempo.</b> 100·(ΣT_base − ΣT_cfg)/ΣT_base, com ' +
+    'T = mediana das 10 repetições e a soma percorrendo as 25 células de ' +
+    'sequência × taxa. O IC95% vem de bootstrap das repetições dentro de ' +
+    'cada célula (1.000 reamostragens, semente fixa). Positivo = mais ' +
+    'rápido.');
+  line('<b>BD% — BD-rate.</b> Por sequência, com os 5 pontos (PSNR ' +
+    'ocupada, log(bytes)): interpolação cúbica monotônica (PCHIP), ' +
+    'integração no intervalo de PSNR comum às duas curvas e média ' +
+    'geométrica das 5 sequências. Negativo = menos bits para a mesma ' +
+    'qualidade. A qualidade já está dentro do BD-rate; por isso o ΔPSNR ' +
+    'no mesmo QP aparece só como descrição e não entra na decisão.');
+  line('<b>Seleção.</b> (1) frente de Pareto em (T%, BD%): A domina B se ' +
+    'T_A ≥ T_B e BD_A ≤ BD_B, com pelo menos uma desigualdade estrita; ' +
+    '(2) adota uma config só se BD% ≤ limite e o limite inferior do ' +
+    'IC95% de T% for > 0; (3) entre as elegíveis, maior T%, com empate ' +
+    'abaixo de 0,05 p.p. resolvido pelo menor BD% — a mediana de 10 ' +
+    'repetições não distingue menos que isso, e a menor semi-largura de ' +
+    'IC95% da suíte é 0,12 p.p.; (4) se nenhuma cumprir, mantém o base.');
+  var st = paretoSummary.done ? paretoSummaryStats() : null;
+  if (st) {
+    line('<b>Validação.</b> Sobreposição de PSNR entre as curvas: mínimo ' +
+      'de ' + fmt(st.minOv, 2) + ' dB nas ' + st.curves + ' curvas (' +
+      st.n + ' comparações × 5 sequências) — o BD-rate foi aplicável sem ' +
+      'fallback. PCHIP × interpolação linear: diferença máxima de ' +
+      fmt(st.maxPL, 2) + ' pontos percentuais.');
+  } else {
+    line('<b>Validação.</b> calculando sobreposição de PSNR e diferença ' +
+      'PCHIP × linear…');
+  }
+  line('<b>Limitações.</b> A qualidade é o Y da região ocupada (a única ' +
+    'medida disponível nesta suíte); não há D1/D2 nem PSNR de cor. O ' +
+    'BD-rate resume 5 QPs e o tempo é parede (wall), mediana de 10 ' +
+    'repetições. A generalização vale para as 5 sequências e o workload ' +
+    'medidos.');
+  line('<b>Reprodutibilidade.</b> Todos os números desta aba são ' +
+    'recalculados no navegador a partir das mesmas células do site ' +
+    '(data.js), com semente fixa; não são copiados do relatório.');
+}
+
 /* ---------------------------- sobre ------------------------------- */
 function renderAbout() {
   var box = document.getElementById('about-content');
@@ -1544,6 +2153,18 @@ function renderAbout() {
       d.innerHTML = '<div><b>' + kv[0] + ':</b> ' + esc(kv[1]) + '</div>';
       box.appendChild(d);
     });
+  h3('Escolha por célula (BD-rate × tempo)');
+  p('A aba Pareto calcula no navegador, a partir das mesmas células, o ' +
+    'BD-rate sobre a PSNR ocupada e o ganho de tempo de cada configuração ' +
+    'contra o base. A unidade é 20 células: 4 de geometria e 16 de ' +
+    'atributo. Na geometria, bytes e PSNR são idênticos nos 4 ' +
+    'preenchimentos; só o tempo varia, então ele é agregado nas 4 ' +
+    'repetições.');
+  p('A escolha não usa pesos: frente de Pareto em (T%, BD%), adota só ' +
+    'BD% ≤ limite e IC95% do tempo > 0, e mantém o base quando nenhuma ' +
+    'configuração passa. O limite é ajustável e a tabela de sensibilidade ' +
+    'mostra o efeito de 0 a 2%. O método completo está descrito na própria ' +
+    'aba; a implementação é pareto.js.');
   h3('Origem dos dados');
   D.provenance.source_runs.forEach(function (s) {
     var d = document.createElement('div');
@@ -1569,6 +2190,7 @@ function render() {
     activeFills().length + '/' + FILL_METHODS.length + ' preenchimentos';
   if (state.tab === 'rd') renderRD();
   if (state.tab === 'overview') renderOverview();
+  if (state.tab === 'pareto') renderPareto();
   if (state.tab === 'tables') {
     if (state.sub === 'agg') renderAggTable(); else renderCellsTable();
   }
@@ -1585,7 +2207,7 @@ function init() {
   initControls();
   renderAbout();
   var requested = String(location.hash || '').replace('#', '');
-  ['rd', 'overview', 'tables', 'time', 'about'].forEach(function (t) {
+  ['rd', 'overview', 'pareto', 'tables', 'time', 'about'].forEach(function (t) {
     if (requested === t) switchTab(t);
   });
   render();
