@@ -47,11 +47,12 @@ JavaScript puro. A URL troca de hash (`#rd`, `#overview`, `#pareto`,
   `T% > 0`, IC95% do tempo > 0 e BD-rate válido, adota a maior pontuação
   `E = T% − λ·BD%`, com λ ajustável na aba (padrão 5), mantendo o `base` se
   nenhuma for elegível. BD negativo (menos bits) aumenta E; BD positivo reduz.
-  Os **preenchimentos marcados na sidebar são agregados** no gráfico e na
-  decisão principal; a tabela das 20 células (4 de geometria + 16 de
-  atributo) conserva o vencedor individual de cada preenchimento — clicar
-  numa linha marca só aquele preenchimento no gráfico. A tabela de pontuação
-  ordena as configs da frente por `E`; não há limite fixo de BD-rate.
+  Os **preenchimentos marcados na sidebar são agregados** no gráfico, na
+  decisão principal e na coluna `config (seleção)` da tabela das 20 células
+  (4 de geometria + 16 de atributo); a coluna `por fill` conserva o vencedor
+  individual de cada preenchimento. Clicar numa linha marca só aquele
+  preenchimento no gráfico. A tabela de pontuação ordena as configs da frente
+  por `E`; não há limite fixo de BD-rate.
   O ΔPSNR no mesmo QP aparece só como descrição — o BD-rate já é medido a
   qualidade constante.
 - **Tabelas** — `Agregados` (uma linha por config, com opção de comparar

@@ -1548,17 +1548,21 @@ function paretoFillsNow() {
   return fs.length ? fs : FILL_METHODS.slice();
 }
 function cellCurveCount() { return paretoFillsNow().length * SEQS.length; }
-function paretoResult() {
-  var fills = paretoFillsNow();
-  var key = [state.plane, fills.join(','), state.speed, state.mode,
-    state.region].join('|');
+// Mesma agregação para o gráfico e para as linhas da tabela das 20 células.
+function paretoCellFor(plane, speed, mode, fills) {
+  var fs = fills && fills.length ? fills : paretoFillsNow();
+  var key = [plane, fs.join(','), speed, mode, state.region].join('|');
   if (!paretoCellCache[key]) {
     paretoCellCache[key] = PARETO.computeCell(D, {
-      plane: state.plane, fills: fills, speed: state.speed, mode: state.mode,
+      plane: plane, fills: fs, speed: speed, mode: mode,
       region: state.region
     });
   }
   return paretoCellCache[key];
+}
+function paretoResult() {
+  return paretoCellFor(state.plane, state.speed, state.mode,
+    paretoFillsNow());
 }
 function signed(v, nd) {
   if (!isFinite(v)) return '—';
@@ -2081,15 +2085,21 @@ function renderParetoSummary() {
   clear(t);
   var thead = document.createElement('thead');
   thead.innerHTML = '<tr><th>plano</th><th>preench.</th><th>vel.</th>' +
-    '<th>modo</th><th>config</th><th>T%</th><th>IC95% T%</th><th>BD%</th>' +
+    '<th>modo</th><th>config (seleção)</th><th>por fill</th>' +
+    '<th>T%</th><th>IC95% T%</th><th>BD%</th>' +
     '<th>ΔQ dB</th><th>decisão</th></tr>';
   t.appendChild(thead);
   var tb = document.createElement('tbody');
   t.appendChild(tb);
   var results = paretoSummary.results;
+  var fills = paretoFillsNow();
   results.forEach(function (res) {
-    var s = PARETO.select(res, state.paretoCI, state.paretoLambda);
     var c = res.cell;
+    // A decisão da linha usa a MESMA agregação do gráfico.
+    var agg = paretoCellFor(c.plane, c.speed, c.mode, fills);
+    var s = PARETO.select(agg, state.paretoCI, state.paretoLambda);
+    // Detalhe individual preservado numa coluna separada.
+    var perFill = PARETO.select(res, state.paretoCI, state.paretoLambda);
     var geo = c.plane === 'geometry';
     var w = s.winnerRow;
     var cur = c.plane === state.plane && c.speed === state.speed &&
@@ -2104,6 +2114,7 @@ function renderParetoSummary() {
       '<td>' + c.speed.toUpperCase() + '</td>' +
       '<td>' + c.mode.toUpperCase() + '</td>' +
       '<td><b>' + esc(s.winner) + '</b></td>' +
+      '<td>' + (geo ? '—' : esc(perFill.winner)) + '</td>' +
       '<td class="num ' +
         (tPct > 0 ? 'good' : tPct < 0 ? 'bad' : '') + '">' +
         signed(tPct, 2) + '</td>' +
@@ -2140,7 +2151,7 @@ function renderParetoSummary() {
   });
   if (!results.length) {
     var tr0 = document.createElement('tr');
-    tr0.innerHTML = '<td colspan="10">calculando as 20 células…</td>';
+    tr0.innerHTML = '<td colspan="11">calculando as 20 células…</td>';
     tb.appendChild(tr0);
   }
   document.getElementById('pareto-cells-status').textContent =
@@ -2163,10 +2174,10 @@ function renderParetoMethod() {
     esc(paretoFillsNow().map(fillLabel).join(' + ')) + '</b>. Com mais de ' +
     'um marcado, o tempo soma as medianas de todos e o BD-rate é a média ' +
     'geométrica das curvas de cada (sequência, preenchimento). A tabela ' +
-    '<i>As 20 células</i> conserva o detalhe validado no relatório: uma ' +
-    'decisão por preenchimento (geometria com os 4 agregados no tempo). ' +
-    'Clicar numa linha dessa tabela marca só aquele preenchimento no ' +
-    'gráfico.');
+    '<i>As 20 células</i> usa essa mesma agregação na coluna ' +
+    '<i>config (seleção)</i>, igual ao gráfico; a coluna <i>por fill</i> ' +
+    'guarda o vencedor individual de cada preenchimento. Clicar numa linha ' +
+    'marca só aquele preenchimento e carrega a célula no gráfico.');
   line('<b>Unidade.</b> 20 células na tabela de detalhe: 4 de geometria ' +
     '(velocidade × modo) e 16 de atributo (preenchimento × velocidade × ' +
     'modo). Na geometria, bytes e PSNR são idênticos nos 4 preenchimentos; ' +
