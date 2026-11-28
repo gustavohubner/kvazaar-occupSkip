@@ -49,8 +49,9 @@ JavaScript puro. A URL troca de hash (`#rd`, `#overview`, `#pareto`,
   Os **preenchimentos marcados na sidebar são agregados** no gráfico e na
   decisão principal; a tabela das 20 células (4 de geometria + 16 de
   atributo) conserva o vencedor individual de cada preenchimento — clicar
-  numa linha marca só aquele preenchimento no gráfico. A tabela de
-  sensibilidade mostra a escolha para limites de 0, 0,5, 1 e 2%.
+  numa linha marca só aquele preenchimento no gráfico. O limite de BD-rate é
+  um campo numérico livre; a tabela de sensibilidade mostra 0, 0,5, 1 e 2% e
+  inclui o valor digitado quando ele não está nessa lista.
   O ΔPSNR no mesmo QP aparece só como descrição — o BD-rate já é medido a
   qualidade constante.
 - **Tabelas** — `Agregados` (uma linha por config, com opção de comparar

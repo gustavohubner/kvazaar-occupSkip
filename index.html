@@ -155,13 +155,9 @@
         </div>
         <div class="tools">
           <span class="hint" id="pareto-fills-hint"></span>
-          <label>Limite de BD-rate
-            <select id="pareto-threshold">
-              <option value="0">≤ 0% (não piorar)</option>
-              <option value="0.5">≤ 0,5%</option>
-              <option value="1">≤ 1%</option>
-              <option value="2">≤ 2%</option>
-            </select>
+          <label>Limite de BD-rate (%)
+            <input type="text" id="pareto-threshold" inputmode="decimal"
+              value="0" aria-label="Limite de BD-rate em porcentagem">
           </label>
           <label class="check"><input type="checkbox" id="pareto-ci" checked> IC95% do tempo &gt; 0</label>
           <label class="check"><input type="checkbox" id="pareto-full-y"> escala completa em Y</label>
@@ -209,7 +205,7 @@
       <div class="card">
         <h3>Sensibilidade ao limite de BD-rate</h3>
         <table id="pareto-threshold-table" class="data"></table>
-        <p class="hint">O limite é uma política declarada, não um peso escondido. Com 0% só se adota quem não piora a curva RD; com 1% ou 2% o leitor aceita um pequeno aumento de bits em troca de tempo.</p>
+        <p class="hint">O limite é uma política declarada, não um peso escondido. Digite qualquer valor no campo acima; a linha correspondente entra nesta tabela. Com 0% só se adota quem não piora a curva RD; limites maiores aceitam um aumento de bits em troca de tempo.</p>
       </div>
 
       <div class="card">

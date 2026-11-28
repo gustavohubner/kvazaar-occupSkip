@@ -686,8 +686,15 @@ function initControls() {
   document.getElementById('rep-field').onchange = function (e) {
     state.repField = e.target.value; render(); };
 
+  document.getElementById('pareto-threshold').oninput = function (e) {
+    if (e.target.value.trim() === '') return;
+    var v = Number(e.target.value.replace(',', '.'));
+    if (!isFinite(v)) return;
+    state.paretoThreshold = v; render();
+  };
   document.getElementById('pareto-threshold').onchange = function (e) {
-    state.paretoThreshold = Number(e.target.value); render(); };
+    e.target.value = String(state.paretoThreshold).replace('.', ',');
+  };
   document.getElementById('pareto-ci').onchange = function (e) {
     state.paretoCI = e.target.checked; render(); };
   document.getElementById('pareto-full-y').onchange = function (e) {
@@ -2038,12 +2045,17 @@ function renderParetoThresholdTable(sel) {
   var tb = document.createElement('tbody');
   t.appendChild(tb);
   var res = paretoResult();
-  [0, 0.5, 1, 2].forEach(function (thr) {
+  var limits = [0, 0.5, 1, 2];
+  if (limits.indexOf(state.paretoThreshold) < 0) {
+    limits.push(state.paretoThreshold);
+    limits.sort(function (a, b) { return a - b; });
+  }
+  limits.forEach(function (thr) {
     var s = PARETO.select(res, thr, state.paretoCI);
     var w = s.winnerRow;
     var tr = document.createElement('tr');
     if (thr === state.paretoThreshold) tr.className = 'selected';
-    tr.innerHTML = '<td>' + fmt(thr, 1) + '%</td>' +
+    tr.innerHTML = '<td>' + String(thr).replace('.', ',') + '%</td>' +
       '<td><b>' + esc(s.winner) + '</b></td>' +
       '<td class="num">' + (w ? signed(w.tPct, 2) : '0,00') + '</td>' +
       '<td class="num">' + (w ? signed(w.bdPct, 2) : '0,00') + '</td>' +
