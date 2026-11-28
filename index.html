@@ -155,6 +155,10 @@
         </div>
         <div class="tools">
           <span class="hint" id="pareto-fills-hint"></span>
+          <label>Peso λ
+            <input type="text" id="pareto-lambda" inputmode="decimal"
+              value="5" aria-label="Peso lambda na pontuacao T menos lambda vezes BD">
+          </label>
           <label class="check"><input type="checkbox" id="pareto-ci" checked> IC95% do tempo &gt; 0</label>
           <label class="check"><input type="checkbox" id="pareto-full-y"> escala completa em Y</label>
         </div>
@@ -199,9 +203,9 @@
       </div>
 
       <div class="card">
-        <h3>Ordenação por eficiência (tempo por |BD-rate|)</h3>
+        <h3>Ordenação pela pontuação E = T% − λ·BD%</h3>
         <table id="pareto-efficiency-table" class="data"></table>
-        <p class="hint">E = T%/|BD%|: quanto de tempo se ganha por ponto percentual de |BD-rate|. BD negativo entra pelo módulo (menos bits é bom); BD = 0 vira ∞. Só a frente de Pareto participa. O limite fixo foi removido: um teto alto premiava quem pagava 9% de bits por 1% de tempo extra.</p>
+        <p class="hint">λ (campo acima, padrão 5) converte 1 p.p. de BD-rate em p.p. de tempo: BD negativo (menos bits) aumenta E, BD positivo reduz E. Só a frente de Pareto participa; o base e curvas sem BD-rate ficam fora. Aceita vírgula ou ponto decimal.</p>
       </div>
 
       <div class="card">

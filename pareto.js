@@ -343,21 +343,25 @@ function computeCell(D, opts) {
 }
 
 /* ---------------------------- selecao ------------------------------ */
-// Eficiencia: ganho de tempo por ponto percentual de |BD-rate|.
-// BD% < 0 (menos bits) tem o modulo como custo; BD% = 0 custa zero (infinito).
+// Escalarizacao linear: E = T% − λ·BD%, com λ declarado na interface.
+// BD% > 0 (mais bits) e penalizado; BD% < 0 (menos bits) e bonus.
+// base e curvas sem BD-rate nao recebem E (nao e possivel comparar).
 // T% < 0 (config mais lenta) nunca e elegivel, mesmo com menos bits.
-function efficiencyOf(c) {
+var LAMBDA_DEFAULT = 5;
+function efficiencyOf(c, lambda) {
   if (c.config === 'base' || c.bdPct === null) return null;
-  if (c.bdPct === 0) return Infinity;
-  return c.tPct / Math.abs(c.bdPct);
+  return c.tPct - lambda * c.bdPct;
 }
 function fmtEfficiency(e) {
-  if (!isFinite(e)) return '∞';
+  if (e === null || e === undefined) return '—';
+  if (!isFinite(e)) return e > 0 ? '∞' : '−∞';
   return String(Math.round(e * 100) / 100).replace('.', ',');
 }
-function select(res, requireCI) {
+function select(res, requireCI, lambda) {
+  var lam = typeof lambda === 'number' && isFinite(lambda) ?
+    lambda : LAMBDA_DEFAULT;
   var configs = res.configs.map(function (c) {
-    var eff = efficiencyOf(c);
+    var eff = efficiencyOf(c, lam);
     var eligible = eff !== null && c.pareto && c.tPct > 0 &&
       (!requireCI || c.ciLow > 0);
     return Object.assign({}, c, {
@@ -387,12 +391,13 @@ function select(res, requireCI) {
       });
     }
   }
-  var rule = 'maior E = T%/|BD%| na frente de Pareto, com T% > 0' +
+  var rule = 'maior E = T% − ' + String(lam).replace('.', ',') +
+    '·BD% na frente de Pareto, com T% > 0' +
     (requireCI ? ' e IC95% do tempo > 0' : '') +
-    '; BD% = 0 vira E = ∞; mantem base se nenhuma';
+    '; BD% < 0 aumenta E, BD% > 0 reduz E; mantem base se nenhuma';
   return {
     cell: res.cell, base: res.base, configs: configs, front: res.front,
-    requireCI: requireCI,
+    requireCI: requireCI, lambda: lam,
     winner: winner ? winner.config : 'base',
     winnerRow: winner,
     bestCandidate: bestCandidate,
@@ -438,6 +443,7 @@ global.PARETO = {
   select: select,
   efficiencyOf: efficiencyOf,
   fmtEfficiency: fmtEfficiency,
+  LAMBDA_DEFAULT: LAMBDA_DEFAULT,
   bdRate: bdRate,
   median: median
 };

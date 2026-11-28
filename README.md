@@ -44,13 +44,13 @@ JavaScript puro. A URL troca de hash (`#rd`, `#overview`, `#pareto`,
   10 repetições e o IC95% vem de bootstrap; o BD-rate usa PCHIP nos 5 QPs e
   média geométrica das curvas (5 sequências × preenchimentos marcados). A
   frente de Pareto é o conjunto não dominado; entre as configs da frente com
-  `T% > 0` e IC95% do tempo > 0, adota a maior eficiência
-  `E = T%/|BD%|` (ganho de tempo por p.p. de |BD-rate|; BD negativo entra pelo
-  módulo e BD = 0 vira ∞), mantendo o `base` se nenhuma for elegível.
+  `T% > 0`, IC95% do tempo > 0 e BD-rate válido, adota a maior pontuação
+  `E = T% − λ·BD%`, com λ ajustável na aba (padrão 5), mantendo o `base` se
+  nenhuma for elegível. BD negativo (menos bits) aumenta E; BD positivo reduz.
   Os **preenchimentos marcados na sidebar são agregados** no gráfico e na
   decisão principal; a tabela das 20 células (4 de geometria + 16 de
   atributo) conserva o vencedor individual de cada preenchimento — clicar
-  numa linha marca só aquele preenchimento no gráfico. A tabela de eficiência
+  numa linha marca só aquele preenchimento no gráfico. A tabela de pontuação
   ordena as configs da frente por `E`; não há limite fixo de BD-rate.
   O ΔPSNR no mesmo QP aparece só como descrição — o BD-rate já é medido a
   qualidade constante.

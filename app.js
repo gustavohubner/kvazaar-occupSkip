@@ -86,7 +86,8 @@ var state = {
   repCfg: 'skip', repSeq: 'longdress', repRate: 'r4',
   repFill: FILL_METHODS[0], repField: 'user',
   timeYMode: 'absolute', timeSeq: 'avg', timeField: 'user',
-  paretoCI: true, paretoFullY: false
+  paretoCI: true, paretoFullY: false,
+  paretoLambda: 5
 };
 rebuildCells();
 
@@ -618,6 +619,7 @@ function initControls() {
     state.hidden = {}; state.heatMetric = 'bits'; state.aggCompare = 'vs_base';
     state.fills = cloneSet(FILL_METHODS); state.repFill = FILL_METHODS[0];
     state.paretoCI = true; state.paretoFullY = false;
+    state.paretoLambda = 5;
     rebuildCells();
     state.cellSearch = ''; state.cellPage = 0;
     state.cellSort = {col: 'seq', dir: 1};
@@ -633,6 +635,7 @@ function initControls() {
     document.getElementById('cell-search').value = '';
     document.getElementById('pareto-ci').checked = true;
     document.getElementById('pareto-full-y').checked = false;
+    document.getElementById('pareto-lambda').value = '5';
     render();
   };
 
@@ -684,6 +687,15 @@ function initControls() {
   document.getElementById('rep-field').onchange = function (e) {
     state.repField = e.target.value; render(); };
 
+  document.getElementById('pareto-lambda').oninput = function (e) {
+    if (e.target.value.trim() === '') return;
+    var v = Number(e.target.value.replace(',', '.'));
+    if (!isFinite(v)) return;
+    state.paretoLambda = v; render();
+  };
+  document.getElementById('pareto-lambda').onchange = function (e) {
+    e.target.value = String(state.paretoLambda).replace('.', ',');
+  };
   document.getElementById('pareto-ci').onchange = function (e) {
     state.paretoCI = e.target.checked; render(); };
   document.getElementById('pareto-full-y').onchange = function (e) {
@@ -1648,7 +1660,7 @@ function renderPareto() {
     return;
   }
   var res = paretoResult();
-  var sel = PARETO.select(res, state.paretoCI);
+  var sel = PARETO.select(res, state.paretoCI, state.paretoLambda);
   renderParetoWarning(res);
   var cell = sel.cell;
   var geo = cell.plane === 'geometry';
@@ -1876,7 +1888,8 @@ function renderParetoTable(sel) {
   clear(t);
   var thead = document.createElement('thead');
   thead.innerHTML = '<tr><th>config</th><th>T%</th><th>IC95% T%</th>' +
-    '<th>BD%</th><th>E = T/|BD|</th><th>ΔQ dB</th><th>Δbits%</th>' +
+    '<th>BD%</th><th>E = T% − ' + String(sel.lambda).replace('.', ',') +
+    '·BD%</th><th>ΔQ dB</th><th>Δbits%</th>' +
     '<th>frente</th><th>regra</th></tr>';
   t.appendChild(thead);
   var tb = document.createElement('tbody');
@@ -1902,8 +1915,7 @@ function renderParetoTable(sel) {
           (c.bdPct < 0 ? 'good' : c.bdPct > 0 ? 'bad' : '') + '">' +
           signed(c.bdPct, 3) + '</td>' +
         '<td class="num ' + (c.eligible ? 'good' : '') + '">' +
-          (c.efficiency === null ? '—' :
-            isFinite(c.efficiency) ? PARETO.fmtEfficiency(c.efficiency) : '∞') +
+          PARETO.fmtEfficiency(c.efficiency) +
           '</td>' +
         '<td class="num ' +
           (c.dqDb < 0 ? 'good' : c.dqDb > 0 ? 'bad' : '') + '">' +
@@ -1953,9 +1965,9 @@ function renderParetoDecision(sel) {
   if (w) {
     p.innerHTML = 'T% = <b>' + signed(w.tPct, 2) + '%</b> (IC95% ' +
       fmt(w.ciLow, 2) + ' a ' + fmt(w.ciHigh, 2) + '), BD% = <b>' +
-      signed(w.bdPct, 2) + '%</b>, E = <b>' +
-      (isFinite(w.efficiency) ? PARETO.fmtEfficiency(w.efficiency) : '∞') +
-      '</b> p.p. de tempo por p.p. de |BD|, ΔQ = ' +
+      signed(w.bdPct, 2) + '%</b>, E = T% − ' +
+      String(sel.lambda).replace('.', ',') + '·BD% = <b>' +
+      PARETO.fmtEfficiency(w.efficiency) + '</b>, ΔQ = ' +
       signed(w.dqDb, 3) + ' dB.';
   } else {
     p.textContent = 'Nenhuma configuração da frente tem T% > 0 e IC95% ' +
@@ -1986,8 +1998,7 @@ function renderParetoDecision(sel) {
         '] inclui zero';
     line('<b>Melhor candidato descartado:</b> ' + esc(b.config) + ' — T% ' +
       signed(b.tPct, 2) + '%, BD% ' + signed(b.bdPct, 2) + '%, E = ' +
-      (isFinite(b.efficiency) ? PARETO.fmtEfficiency(b.efficiency) : '∞') +
-      ', ' + why + '.');
+      PARETO.fmtEfficiency(b.efficiency) + ', ' + why + '.');
   }
   box.appendChild(notes);
 }
@@ -2035,7 +2046,8 @@ function renderParetoEfficiencyTable(sel) {
   clear(t);
   var thead = document.createElement('thead');
   thead.innerHTML = '<tr><th>config</th><th>T%</th><th>BD%</th>' +
-    '<th>E = T/|BD|</th><th>elegível</th></tr>';
+    '<th>E = T% − ' + String(sel.lambda).replace('.', ',') +
+    '·BD%</th><th>elegível</th></tr>';
   t.appendChild(thead);
   var tb = document.createElement('tbody');
   t.appendChild(tb);
@@ -2051,8 +2063,7 @@ function renderParetoEfficiencyTable(sel) {
   rows.forEach(function (c) {
     var tr = document.createElement('tr');
     if (c.selected) tr.className = 'selected';
-    var eff = isFinite(c.efficiency) ?
-      PARETO.fmtEfficiency(c.efficiency) : '∞';
+    var eff = PARETO.fmtEfficiency(c.efficiency);
     tr.innerHTML = '<td>' + (c.selected ? '<b>' + esc(c.config) + '</b>' :
       esc(c.config)) + '</td>' +
       '<td class="num ' + (c.tPct > 0 ? 'good' : 'bad') + '">' +
@@ -2077,7 +2088,7 @@ function renderParetoSummary() {
   t.appendChild(tb);
   var results = paretoSummary.results;
   results.forEach(function (res) {
-    var s = PARETO.select(res, state.paretoCI);
+    var s = PARETO.select(res, state.paretoCI, state.paretoLambda);
     var c = res.cell;
     var geo = c.plane === 'geometry';
     var w = s.winnerRow;
@@ -2182,14 +2193,16 @@ function renderParetoMethod() {
     'no mesmo QP aparece só como descrição e não entra na decisão.');
   line('<b>Seleção.</b> (1) frente de Pareto em (T%, BD%): A domina B se ' +
     'T_A ≥ T_B e BD_A ≤ BD_B, com pelo menos uma desigualdade estrita; ' +
-    '(2) entre as da frente, só são elegíveis as que têm T% > 0 e o limite ' +
-    'inferior do IC95% de T% > 0; (3) adota a maior eficiência ' +
-    'E = T%/|BD%| — ganho de tempo por p.p. de |BD-rate|, sem limite fixo ' +
-    'e sem peso de cenário; (4) se nenhuma cumprir, mantém o base. ' +
-    '<b>Sinais:</b> BD% &lt; 0 (menos bits) entra pelo módulo, então um ' +
-    'BD% pequeno e negativo dá E alta; BD% = 0 dá E = ∞; T% ≤ 0 não é ' +
-    'elegível, mesmo com menos bits, porque o objetivo é tempo. Empate ' +
-    'numérico em E decide o maior T%, depois o menor |BD%|.');
+    '(2) entre as da frente, só são elegíveis as que têm T% > 0, o limite ' +
+    'inferior do IC95% de T% > 0 e BD-rate válido; (3) adota a maior ' +
+    'pontuação <b>E = T% − λ·BD%</b>, com λ = ' +
+    String(state.paretoLambda).replace('.', ',') + ' declarado no campo ' +
+    'acima; (4) se nenhuma cumprir, mantém o base. ' +
+    '<b>Sinais:</b> λ converte 1 p.p. de BD-rate em p.p. de tempo: BD% ' +
+    '&lt; 0 (menos bits) aumenta E, BD% &gt; 0 reduz E. T% ≤ 0 não é ' +
+    'elegível, mesmo com menos bits, porque o objetivo é tempo. O base e ' +
+    'curvas sem BD-rate não recebem E. Empate numérico decide o maior T%, ' +
+    'depois o menor |BD%|.');
   var st = paretoSummary.region === state.region && paretoSummary.done ?
     paretoSummaryStats() : null;
   if (st) {
@@ -2261,10 +2274,10 @@ function renderAbout() {
     'relatório (4 de geometria e 16 de atributo), com o vencedor de cada ' +
     'preenchimento. Na geometria, bytes e PSNR são idênticos nos 4 ' +
     'preenchimentos; só o tempo varia.');
-  p('A escolha não usa pesos nem limite fixo: frente de Pareto em ' +
-    '(T%, BD%), elegibilidade com T% > 0 e IC95% do tempo > 0, e adoção ' +
-    'pela maior eficiência E = T%/|BD%|. BD negativo entra pelo módulo, ' +
-    'BD = 0 vira ∞ e T% negativo não é elegível. O método completo está ' +
+  p('A escolha usa escalarização linear declarada, sem limite fixo de ' +
+    'BD-rate: frente de Pareto em (T%, BD%), elegibilidade com T% > 0, ' +
+    'IC95% do tempo > 0 e BD-rate válido, e adoção pela maior pontuação ' +
+    'E = T% − λ·BD%, com λ ajustável na aba. O método completo está ' +
     'descrito na própria aba; a implementação é pareto.js.');
   h3('Origem dos dados');
   D.provenance.source_runs.forEach(function (s) {
