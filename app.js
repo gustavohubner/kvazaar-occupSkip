@@ -2093,11 +2093,14 @@ function renderParetoSummary() {
   var tb = document.createElement('tbody');
   t.appendChild(tb);
   var results = paretoSummary.results;
+  var fills = paretoFillsNow();
   results.forEach(function (res) {
-    // Cada linha é a decisão daquele preenchimento, independente dos chips.
-    var s = PARETO.select(res, state.paretoCI, state.paretoLambda);
     var c = res.cell;
     var geo = c.plane === 'geometry';
+    // Geometria não tem preenchimento próprio: segue os fills marcados.
+    // Atributo mantém o detalhe por preenchimento, sem depender dos chips.
+    var cell = geo ? paretoCellFor('geometry', c.speed, c.mode, fills) : res;
+    var s = PARETO.select(cell, state.paretoCI, state.paretoLambda);
     var w = s.winnerRow;
     var cur = c.plane === state.plane && c.speed === state.speed &&
       c.mode === state.mode && (geo || paretoFillsNow().indexOf(c.fill) >= 0);
@@ -2170,10 +2173,12 @@ function renderParetoMethod() {
     esc(paretoFillsNow().map(fillLabel).join(' + ')) + '</b>. Com mais de ' +
     'um marcado, o tempo soma as medianas de todos e o BD-rate é a média ' +
     'geométrica das curvas de cada (sequência, preenchimento). A tabela ' +
-    '<i>As 20 células</i> é o detalhe por preenchimento: cada linha mostra ' +
-    'a config selecionada para aquele preenchimento, sem ser afetada pelos ' +
-    'chips marcados (geometria com tempo agregado nos 4). Clicar numa linha ' +
-    'marca só aquele preenchimento e carrega a célula no gráfico.');
+    '<i>As 20 células</i> tem um caso especial: geometria não tem coluna ' +
+    'por preenchimento e segue os fills marcados — marcar os 4 agrega os ' +
+    '4 conjuntos, marcar 1 usa só ele. Atributo mantém uma linha por ' +
+    'preenchimento, calculada com aquele fill e sem depender dos chips. ' +
+    'Clicar numa linha carrega a célula no gráfico; em atributo, também ' +
+    'marca só aquele preenchimento.');
   line('<b>Unidade.</b> 20 células na tabela de detalhe: 4 de geometria ' +
     '(velocidade × modo) e 16 de atributo (preenchimento × velocidade × ' +
     'modo). Na geometria, bytes e PSNR são idênticos nos 4 preenchimentos; ' +

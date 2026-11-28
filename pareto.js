@@ -199,9 +199,10 @@ function bdRateLinear(basePts, cfgPts) {
 function computeCell(D, opts) {
   var plane = opts.plane;
   var fills = normFills(D, opts);
-  // Tempo e BD-rate podem usar conjuntos distintos: na tabela de detalhe da
-  // geometria o tempo agrega os 4 preenchimentos e o BD-rate usa um (são
-  // idênticos em bytes/PSNR). No gráfico os dois usam os fills marcados.
+  // Tempo e BD-rate podem usar conjuntos distintos. Na tabela de detalhe,
+  // atributo usa um fill por linha; geometria segue os fills marcados.
+  // Como bytes/PSNR são idênticos entre fills, agregar curvas de qualidade
+  // não muda o BD-rate — só o tempo ganha mais repetições.
   var timeFills = opts.timeFills && opts.timeFills.length ?
     normFills(D, {fills: opts.timeFills}) : fills;
   var speed = opts.speed;
