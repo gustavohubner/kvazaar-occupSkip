@@ -1904,9 +1904,10 @@ function renderParetoTable(sel) {
       if (c.config === 'base') tr.className = 'base-row';
       if (c.selected) tr.className += ' selected';
       var tag = '';
-      if (c.selected) tag = '<span class="pareto-tag adopt">adotar</span>';
-      else if (c.config === 'base' && sel.winner === 'base') {
+      if (c.selected && c.config === 'base') {
         tag = '<span class="pareto-tag keep">manter</span>';
+      } else if (c.selected) {
+        tag = '<span class="pareto-tag adopt">adotar</span>';
       }
       tr.innerHTML =
         '<td>' + esc(c.config) + '</td>' +
@@ -1962,11 +1963,11 @@ function renderParetoDecision(sel) {
   d.appendChild(k);
   var main = document.createElement('div');
   main.className = 'decision-main';
-  main.innerHTML = w ? 'Adotar <b>' + esc(w.config) + '</b>' :
-    'Manter <b>base</b>';
+  main.innerHTML = sel.winner === 'base' ? 'Manter <b>base</b>' :
+    'Adotar <b>' + esc(sel.winner) + '</b>';
   d.appendChild(main);
   var p = document.createElement('p');
-  if (w) {
+  if (w && sel.winner !== 'base') {
     p.innerHTML = 'T% = <b>' + signed(w.tPct, 2) + '%</b> (IC95% ' +
       fmt(w.ciLow, 2) + ' a ' + fmt(w.ciHigh, 2) + '), BD% = <b>' +
       signed(w.bdPct, 2) + '%</b>, E = T% − ' +
@@ -1974,8 +1975,8 @@ function renderParetoDecision(sel) {
       PARETO.fmtEfficiency(w.efficiency) + '</b>, ΔQ = ' +
       signed(w.dqDb, 3) + ' dB.';
   } else {
-    p.textContent = 'Nenhuma configuração da frente tem T% > 0 e IC95% ' +
-      'do tempo inteiramente acima de zero.';
+    p.textContent = 'Nenhuma configuração elegível tem E > 0: o base ' +
+      '(E = 0) continua como referência.';
   }
   d.appendChild(p);
   box.appendChild(d);
@@ -2056,7 +2057,7 @@ function renderParetoEfficiencyTable(sel) {
   var tb = document.createElement('tbody');
   t.appendChild(tb);
   var rows = sel.configs.filter(function (c) {
-    return c.config !== 'base' && c.pareto && c.efficiency !== null;
+    return c.pareto && c.efficiency !== null;
   }).sort(function (a, b) { return b.efficiency - a.efficiency; });
   if (!rows.length) {
     var empty = document.createElement('tr');
@@ -2208,11 +2209,12 @@ function renderParetoMethod() {
     'inferior do IC95% de T% > 0 e BD-rate válido; (3) adota a maior ' +
     'pontuação <b>E = T% − λ·BD%</b>, com λ = ' +
     String(state.paretoLambda).replace('.', ',') + ' declarado no campo ' +
-    'acima; (4) se nenhuma cumprir, mantém o base. ' +
+    'acima; (4) o base tem E = 0 e participa da disputa: só é trocado se ' +
+    'outra config tiver E > 0. ' +
     '<b>Sinais:</b> λ converte 1 p.p. de BD-rate em p.p. de tempo: BD% ' +
     '&lt; 0 (menos bits) aumenta E, BD% &gt; 0 reduz E. T% ≤ 0 não é ' +
-    'elegível, mesmo com menos bits, porque o objetivo é tempo. O base e ' +
-    'curvas sem BD-rate não recebem E. Empate numérico decide o maior T%, ' +
+    'elegível, mesmo com menos bits, porque o objetivo é tempo. Curvas sem ' +
+    'BD-rate não recebem E. Empate numérico decide o maior T%, ' +
     'depois o menor |BD%|.');
   var st = paretoSummary.region === state.region && paretoSummary.done ?
     paretoSummaryStats() : null;

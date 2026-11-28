@@ -45,8 +45,9 @@ JavaScript puro. A URL troca de hash (`#rd`, `#overview`, `#pareto`,
   média geométrica das curvas (5 sequências × preenchimentos marcados). A
   frente de Pareto é o conjunto não dominado; entre as configs da frente com
   `T% > 0`, IC95% do tempo > 0 e BD-rate válido, adota a maior pontuação
-  `E = T% − λ·BD%`, com λ ajustável na aba (padrão 5), mantendo o `base` se
-  nenhuma for elegível. BD negativo (menos bits) aumenta E; BD positivo reduz.
+  `E = T% − λ·BD%`, com λ ajustável na aba (padrão 5). O `base` tem `E = 0` e
+  participa da disputa: só é trocado por uma config com `E > 0`. BD negativo
+  (menos bits) aumenta E; BD positivo reduz.
   Os **preenchimentos marcados na sidebar são agregados** no gráfico, na
   decisão principal e na coluna `config (seleção)` da tabela das 20 células
   (4 de geometria + 16 de atributo); a coluna `por fill` conserva o vencedor

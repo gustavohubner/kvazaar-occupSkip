@@ -345,25 +345,29 @@ function computeCell(D, opts) {
 /* ---------------------------- selecao ------------------------------ */
 // Escalarizacao linear: E = T% − λ·BD%, com λ declarado na interface.
 // BD% > 0 (mais bits) e penalizado; BD% < 0 (menos bits) e bonus.
-// base e curvas sem BD-rate nao recebem E (nao e possivel comparar).
+// O base tem E = 0: e a referencia, entao so se adota quem tiver E > 0.
+// Curvas sem BD-rate nao recebem E (nao e possivel comparar).
 // T% < 0 (config mais lenta) nunca e elegivel, mesmo com menos bits.
 var LAMBDA_DEFAULT = 5;
 function efficiencyOf(c, lambda) {
-  if (c.config === 'base' || c.bdPct === null) return null;
+  if (c.bdPct === null) return null;
+  if (c.config === 'base') return 0;
   return c.tPct - lambda * c.bdPct;
 }
 function fmtEfficiency(e) {
   if (e === null || e === undefined) return '—';
   if (!isFinite(e)) return e > 0 ? '∞' : '−∞';
-  return String(Math.round(e * 100) / 100).replace('.', ',');
+  return e.toFixed(2).replace('.', ',');
 }
 function select(res, requireCI, lambda) {
   var lam = typeof lambda === 'number' && isFinite(lambda) ?
     lambda : LAMBDA_DEFAULT;
   var configs = res.configs.map(function (c) {
     var eff = efficiencyOf(c, lam);
-    var eligible = eff !== null && c.pareto && c.tPct > 0 &&
-      (!requireCI || c.ciLow > 0);
+    // O base participa sempre com E = 0: nada com E negativo o supera.
+    var eligible = c.config === 'base' ||
+      (eff !== null && c.pareto && c.tPct > 0 &&
+        (!requireCI || c.ciLow > 0));
     return Object.assign({}, c, {
       efficiency: eff, eligible: eligible, selected: false
     });
@@ -394,7 +398,8 @@ function select(res, requireCI, lambda) {
   var rule = 'maior E = T% − ' + String(lam).replace('.', ',') +
     '·BD% na frente de Pareto, com T% > 0' +
     (requireCI ? ' e IC95% do tempo > 0' : '') +
-    '; BD% < 0 aumenta E, BD% > 0 reduz E; mantem base se nenhuma';
+    '; base tem E = 0 e so troca se outra tiver E > 0;' +
+    ' BD% < 0 aumenta E, BD% > 0 reduz E';
   return {
     cell: res.cell, base: res.base, configs: configs, front: res.front,
     requireCI: requireCI, lambda: lam,
