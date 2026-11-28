@@ -48,12 +48,12 @@ JavaScript puro. A URL troca de hash (`#rd`, `#overview`, `#pareto`,
   `E = T% − λ·BD%`, com λ ajustável na aba (padrão 5). O `base` tem `E = 0` e
   participa da disputa: só é trocado por uma config com `E > 0`. BD negativo
   (menos bits) aumenta E; BD positivo reduz.
-  Os **preenchimentos marcados na sidebar são agregados** no gráfico, na
-  decisão principal e na coluna `config (seleção)` da tabela das 20 células
-  (4 de geometria + 16 de atributo); a coluna `por fill` conserva o vencedor
-  individual de cada preenchimento. Clicar numa linha marca só aquele
-  preenchimento no gráfico. A tabela de pontuação ordena as configs da frente
-  por `E`; não há limite fixo de BD-rate.
+  Os **preenchimentos marcados na sidebar são agregados** no gráfico e na
+  decisão principal. A tabela das 20 células (4 de geometria + 16 de atributo)
+  é o detalhe por preenchimento: cada linha traz a config selecionada para
+  aquele preenchimento e não é afetada pelos chips marcados. Clicar numa linha
+  marca só aquele preenchimento no gráfico. A tabela de pontuação ordena as
+  configs da frente por `E`; não há limite fixo de BD-rate.
   O ΔPSNR no mesmo QP aparece só como descrição — o BD-rate já é medido a
   qualidade constante.
 - **Tabelas** — `Agregados` (uma linha por config, com opção de comparar

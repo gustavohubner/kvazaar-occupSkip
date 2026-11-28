@@ -2086,21 +2086,17 @@ function renderParetoSummary() {
   clear(t);
   var thead = document.createElement('thead');
   thead.innerHTML = '<tr><th>plano</th><th>preench.</th><th>vel.</th>' +
-    '<th>modo</th><th>config (seleção)</th><th>por fill</th>' +
+    '<th>modo</th><th>config selecionada</th>' +
     '<th>T%</th><th>IC95% T%</th><th>BD%</th>' +
     '<th>ΔQ dB</th><th>decisão</th></tr>';
   t.appendChild(thead);
   var tb = document.createElement('tbody');
   t.appendChild(tb);
   var results = paretoSummary.results;
-  var fills = paretoFillsNow();
   results.forEach(function (res) {
+    // Cada linha é a decisão daquele preenchimento, independente dos chips.
+    var s = PARETO.select(res, state.paretoCI, state.paretoLambda);
     var c = res.cell;
-    // A decisão da linha usa a MESMA agregação do gráfico.
-    var agg = paretoCellFor(c.plane, c.speed, c.mode, fills);
-    var s = PARETO.select(agg, state.paretoCI, state.paretoLambda);
-    // Detalhe individual preservado numa coluna separada.
-    var perFill = PARETO.select(res, state.paretoCI, state.paretoLambda);
     var geo = c.plane === 'geometry';
     var w = s.winnerRow;
     var cur = c.plane === state.plane && c.speed === state.speed &&
@@ -2115,7 +2111,6 @@ function renderParetoSummary() {
       '<td>' + c.speed.toUpperCase() + '</td>' +
       '<td>' + c.mode.toUpperCase() + '</td>' +
       '<td><b>' + esc(s.winner) + '</b></td>' +
-      '<td>' + (geo ? '—' : esc(perFill.winner)) + '</td>' +
       '<td class="num ' +
         (tPct > 0 ? 'good' : tPct < 0 ? 'bad' : '') + '">' +
         signed(tPct, 2) + '</td>' +
@@ -2152,7 +2147,7 @@ function renderParetoSummary() {
   });
   if (!results.length) {
     var tr0 = document.createElement('tr');
-    tr0.innerHTML = '<td colspan="11">calculando as 20 células…</td>';
+    tr0.innerHTML = '<td colspan="10">calculando as 20 células…</td>';
     tb.appendChild(tr0);
   }
   document.getElementById('pareto-cells-status').textContent =
@@ -2175,9 +2170,9 @@ function renderParetoMethod() {
     esc(paretoFillsNow().map(fillLabel).join(' + ')) + '</b>. Com mais de ' +
     'um marcado, o tempo soma as medianas de todos e o BD-rate é a média ' +
     'geométrica das curvas de cada (sequência, preenchimento). A tabela ' +
-    '<i>As 20 células</i> usa essa mesma agregação na coluna ' +
-    '<i>config (seleção)</i>, igual ao gráfico; a coluna <i>por fill</i> ' +
-    'guarda o vencedor individual de cada preenchimento. Clicar numa linha ' +
+    '<i>As 20 células</i> é o detalhe por preenchimento: cada linha mostra ' +
+    'a config selecionada para aquele preenchimento, sem ser afetada pelos ' +
+    'chips marcados (geometria com tempo agregado nos 4). Clicar numa linha ' +
     'marca só aquele preenchimento e carrega a célula no gráfico.');
   line('<b>Unidade.</b> 20 células na tabela de detalhe: 4 de geometria ' +
     '(velocidade × modo) e 16 de atributo (preenchimento × velocidade × ' +
