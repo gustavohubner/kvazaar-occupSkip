@@ -17,9 +17,6 @@ var PX_FIELD = {
   y: 'pixels_global', occupied_y: 'pixels_occupied', empty_y: 'pixels_empty'
 };
 var REGION_DEFAULT = 'occupied_y';
-// Diferenca de T% abaixo disto e empate: decide o menor BD%. A menor
-// semi-largura de IC95% da suite e 0,12 p.p., entao 0,05 p.p. e ruido.
-var TIE_TOL_PCT = 0.05;
 
 /* ------------------------------ dados ------------------------------ */
 function idx(D) {
@@ -346,24 +343,35 @@ function computeCell(D, opts) {
 }
 
 /* ---------------------------- selecao ------------------------------ */
-function select(res, threshold, requireCI) {
+// Eficiencia: ganho de tempo por ponto percentual de |BD-rate|.
+// BD% < 0 (menos bits) tem o modulo como custo; BD% = 0 custa zero (infinito).
+// T% < 0 (config mais lenta) nunca e elegivel, mesmo com menos bits.
+function efficiencyOf(c) {
+  if (c.config === 'base' || c.bdPct === null) return null;
+  if (c.bdPct === 0) return Infinity;
+  return c.tPct / Math.abs(c.bdPct);
+}
+function fmtEfficiency(e) {
+  if (!isFinite(e)) return '∞';
+  return String(Math.round(e * 100) / 100).replace('.', ',');
+}
+function select(res, requireCI) {
   var configs = res.configs.map(function (c) {
-    var eligible = c.config !== 'base' && c.bdPct !== null && c.pareto &&
-      c.bdPct <= threshold + 1e-12 && (!requireCI || c.ciLow > 0);
-    return Object.assign({}, c, {eligible: eligible, selected: false});
+    var eff = efficiencyOf(c);
+    var eligible = eff !== null && c.pareto && c.tPct > 0 &&
+      (!requireCI || c.ciLow > 0);
+    return Object.assign({}, c, {
+      efficiency: eff, eligible: eligible, selected: false
+    });
   });
   var eligible = configs.filter(function (c) { return c.eligible; });
   var winner = null;
   if (eligible.length) {
-    var top = eligible.reduce(function (m, c) {
-      return c.tPct > m ? c.tPct : m;
-    }, -Infinity);
-    var tied = eligible.filter(function (c) {
-      return top - c.tPct <= TIE_TOL_PCT;
-    });
-    winner = tied.reduce(function (a, b) {
-      if (b.bdPct < a.bdPct) return b;
-      if (b.bdPct === a.bdPct && b.tPct > a.tPct) return b;
+    winner = eligible.reduce(function (a, b) {
+      if (b.efficiency > a.efficiency) return b;
+      if (b.efficiency === a.efficiency && b.tPct > a.tPct) return b;
+      if (b.efficiency === a.efficiency && b.tPct === a.tPct &&
+          Math.abs(b.bdPct) < Math.abs(a.bdPct)) return b;
       return a;
     });
     winner.selected = true;
@@ -371,35 +379,25 @@ function select(res, threshold, requireCI) {
   var bestCandidate = null;
   if (!winner) {
     var cands = configs.filter(function (c) {
-      return c.config !== 'base' && c.pareto;
+      return c.config !== 'base' && c.pareto && c.efficiency !== null;
     });
     if (cands.length) {
       bestCandidate = cands.reduce(function (a, b) {
-        return b.tPct > a.tPct ? b : a;
+        return b.efficiency > a.efficiency ? b : a;
       });
     }
   }
-  var rule;
-  if (winner) {
-    rule = 'BD% <= ' + fmtThreshold(threshold) +
-      (requireCI ? ' e IC95% do tempo > 0' : '') +
-      '; maior T% (empate < ' + String(TIE_TOL_PCT).replace('.', ',') +
-      ' p.p.: menor BD%)';
-  } else {
-    rule = 'nenhuma config com BD% <= ' + fmtThreshold(threshold) +
-      (requireCI ? ' e IC95% do tempo > 0' : '') + '; mantem base';
-  }
+  var rule = 'maior E = T%/|BD%| na frente de Pareto, com T% > 0' +
+    (requireCI ? ' e IC95% do tempo > 0' : '') +
+    '; BD% = 0 vira E = ∞; mantem base se nenhuma';
   return {
     cell: res.cell, base: res.base, configs: configs, front: res.front,
-    threshold: threshold, requireCI: requireCI,
+    requireCI: requireCI,
     winner: winner ? winner.config : 'base',
     winnerRow: winner,
     bestCandidate: bestCandidate,
     rule: rule
   };
-}
-function fmtThreshold(v) {
-  return String(v).replace('.', ',') + '%';
 }
 
 /* ---------------------------- 20 celulas --------------------------- */
@@ -438,6 +436,8 @@ global.PARETO = {
   computeAll: computeAll,
   cellsOf: cellsOf,
   select: select,
+  efficiencyOf: efficiencyOf,
+  fmtEfficiency: fmtEfficiency,
   bdRate: bdRate,
   median: median
 };

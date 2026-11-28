@@ -155,10 +155,6 @@
         </div>
         <div class="tools">
           <span class="hint" id="pareto-fills-hint"></span>
-          <label>Limite de BD-rate (%)
-            <input type="text" id="pareto-threshold" inputmode="decimal"
-              value="0" aria-label="Limite de BD-rate em porcentagem">
-          </label>
           <label class="check"><input type="checkbox" id="pareto-ci" checked> IC95% do tempo &gt; 0</label>
           <label class="check"><input type="checkbox" id="pareto-full-y"> escala completa em Y</label>
         </div>
@@ -203,9 +199,9 @@
       </div>
 
       <div class="card">
-        <h3>Sensibilidade ao limite de BD-rate</h3>
-        <table id="pareto-threshold-table" class="data"></table>
-        <p class="hint">O limite é uma política declarada, não um peso escondido. Digite qualquer valor no campo acima; a linha correspondente entra nesta tabela. Com 0% só se adota quem não piora a curva RD; limites maiores aceitam um aumento de bits em troca de tempo.</p>
+        <h3>Ordenação por eficiência (tempo por |BD-rate|)</h3>
+        <table id="pareto-efficiency-table" class="data"></table>
+        <p class="hint">E = T%/|BD%|: quanto de tempo se ganha por ponto percentual de |BD-rate|. BD negativo entra pelo módulo (menos bits é bom); BD = 0 vira ∞. Só a frente de Pareto participa. O limite fixo foi removido: um teto alto premiava quem pagava 9% de bits por 1% de tempo extra.</p>
       </div>
 
       <div class="card">

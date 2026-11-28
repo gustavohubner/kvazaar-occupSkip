@@ -86,8 +86,7 @@ var state = {
   repCfg: 'skip', repSeq: 'longdress', repRate: 'r4',
   repFill: FILL_METHODS[0], repField: 'user',
   timeYMode: 'absolute', timeSeq: 'avg', timeField: 'user',
-  paretoThreshold: 0, paretoCI: true,
-  paretoFullY: false
+  paretoCI: true, paretoFullY: false
 };
 rebuildCells();
 
@@ -618,7 +617,7 @@ function initControls() {
     state.timeSeq = 'avg'; state.timeYMode = 'absolute'; state.timeField = 'user';
     state.hidden = {}; state.heatMetric = 'bits'; state.aggCompare = 'vs_base';
     state.fills = cloneSet(FILL_METHODS); state.repFill = FILL_METHODS[0];
-    state.paretoThreshold = 0; state.paretoCI = true; state.paretoFullY = false;
+    state.paretoCI = true; state.paretoFullY = false;
     rebuildCells();
     state.cellSearch = ''; state.cellPage = 0;
     state.cellSort = {col: 'seq', dir: 1};
@@ -632,7 +631,6 @@ function initControls() {
     document.getElementById('heat-metric').value = 'bits';
     document.getElementById('agg-compare').value = 'vs_base';
     document.getElementById('cell-search').value = '';
-    document.getElementById('pareto-threshold').value = '0';
     document.getElementById('pareto-ci').checked = true;
     document.getElementById('pareto-full-y').checked = false;
     render();
@@ -686,15 +684,6 @@ function initControls() {
   document.getElementById('rep-field').onchange = function (e) {
     state.repField = e.target.value; render(); };
 
-  document.getElementById('pareto-threshold').oninput = function (e) {
-    if (e.target.value.trim() === '') return;
-    var v = Number(e.target.value.replace(',', '.'));
-    if (!isFinite(v)) return;
-    state.paretoThreshold = v; render();
-  };
-  document.getElementById('pareto-threshold').onchange = function (e) {
-    e.target.value = String(state.paretoThreshold).replace('.', ',');
-  };
   document.getElementById('pareto-ci').onchange = function (e) {
     state.paretoCI = e.target.checked; render(); };
   document.getElementById('pareto-full-y').onchange = function (e) {
@@ -1659,7 +1648,7 @@ function renderPareto() {
     return;
   }
   var res = paretoResult();
-  var sel = PARETO.select(res, state.paretoThreshold, state.paretoCI);
+  var sel = PARETO.select(res, state.paretoCI);
   renderParetoWarning(res);
   var cell = sel.cell;
   var geo = cell.plane === 'geometry';
@@ -1686,7 +1675,7 @@ function renderPareto() {
   renderParetoTable(sel);
   renderParetoDecision(sel);
   renderParetoSeqTable(sel);
-  renderParetoThresholdTable(sel);
+  renderParetoEfficiencyTable(sel);
   renderParetoMethod();
   ensureParetoSummary();
   renderParetoSummary();
@@ -1887,8 +1876,8 @@ function renderParetoTable(sel) {
   clear(t);
   var thead = document.createElement('thead');
   thead.innerHTML = '<tr><th>config</th><th>T%</th><th>IC95% T%</th>' +
-    '<th>BD%</th><th>ΔQ dB</th><th>Δbits%</th><th>frente</th>' +
-    '<th>regra</th></tr>';
+    '<th>BD%</th><th>E = T/|BD|</th><th>ΔQ dB</th><th>Δbits%</th>' +
+    '<th>frente</th><th>regra</th></tr>';
   t.appendChild(thead);
   var tb = document.createElement('tbody');
   t.appendChild(tb);
@@ -1912,6 +1901,10 @@ function renderParetoTable(sel) {
         '<td class="num ' +
           (c.bdPct < 0 ? 'good' : c.bdPct > 0 ? 'bad' : '') + '">' +
           signed(c.bdPct, 3) + '</td>' +
+        '<td class="num ' + (c.eligible ? 'good' : '') + '">' +
+          (c.efficiency === null ? '—' :
+            isFinite(c.efficiency) ? PARETO.fmtEfficiency(c.efficiency) : '∞') +
+          '</td>' +
         '<td class="num ' +
           (c.dqDb < 0 ? 'good' : c.dqDb > 0 ? 'bad' : '') + '">' +
           signed(c.dqDb, 3) + '</td>' +
@@ -1960,10 +1953,13 @@ function renderParetoDecision(sel) {
   if (w) {
     p.innerHTML = 'T% = <b>' + signed(w.tPct, 2) + '%</b> (IC95% ' +
       fmt(w.ciLow, 2) + ' a ' + fmt(w.ciHigh, 2) + '), BD% = <b>' +
-      signed(w.bdPct, 2) + '%</b>, ΔQ = ' + signed(w.dqDb, 3) + ' dB.';
+      signed(w.bdPct, 2) + '%</b>, E = <b>' +
+      (isFinite(w.efficiency) ? PARETO.fmtEfficiency(w.efficiency) : '∞') +
+      '</b> p.p. de tempo por p.p. de |BD|, ΔQ = ' +
+      signed(w.dqDb, 3) + ' dB.';
   } else {
-    p.textContent = 'Nenhuma configuração passou em BD% ≤ ' +
-      fmt(sel.threshold, 1) + '% com ganho de tempo significativo.';
+    p.textContent = 'Nenhuma configuração da frente tem T% > 0 e IC95% ' +
+      'do tempo inteiramente acima de zero.';
   }
   d.appendChild(p);
   box.appendChild(d);
@@ -1985,14 +1981,13 @@ function renderParetoDecision(sel) {
       fmt(sel.base.psnr - w.dqDb, 3) + ' dB.');
   } else if (sel.bestCandidate) {
     var b = sel.bestCandidate;
-    var why = b.bdPct > sel.threshold ?
-      'BD% ' + signed(b.bdPct, 2) + '% acima do limite de ' +
-        fmt(sel.threshold, 1) + '%' :
+    var why = !(b.tPct > 0) ? 'T% ' + signed(b.tPct, 2) + '% não é ganho' :
       'IC95% do tempo [' + fmt(b.ciLow, 2) + '; ' + fmt(b.ciHigh, 2) +
         '] inclui zero';
-    line('<b>Melhor candidato:</b> ' + esc(b.config) + ' — T% ' +
-      signed(b.tPct, 2) + '%, BD% ' + signed(b.bdPct, 2) +
-      '%, descartado porque ' + why + '.');
+    line('<b>Melhor candidato descartado:</b> ' + esc(b.config) + ' — T% ' +
+      signed(b.tPct, 2) + '%, BD% ' + signed(b.bdPct, 2) + '%, E = ' +
+      (isFinite(b.efficiency) ? PARETO.fmtEfficiency(b.efficiency) : '∞') +
+      ', ' + why + '.');
   }
   box.appendChild(notes);
 }
@@ -2035,33 +2030,38 @@ function renderParetoSeqTable(sel) {
     tb.appendChild(tr);
   });
 }
-function renderParetoThresholdTable(sel) {
-  var t = document.getElementById('pareto-threshold-table');
+function renderParetoEfficiencyTable(sel) {
+  var t = document.getElementById('pareto-efficiency-table');
   clear(t);
   var thead = document.createElement('thead');
-  thead.innerHTML = '<tr><th>limite de BD-rate</th><th>config</th>' +
-    '<th>T%</th><th>BD%</th><th>decisão</th></tr>';
+  thead.innerHTML = '<tr><th>config</th><th>T%</th><th>BD%</th>' +
+    '<th>E = T/|BD|</th><th>elegível</th></tr>';
   t.appendChild(thead);
   var tb = document.createElement('tbody');
   t.appendChild(tb);
-  var res = paretoResult();
-  var limits = [0, 0.5, 1, 2];
-  if (limits.indexOf(state.paretoThreshold) < 0) {
-    limits.push(state.paretoThreshold);
-    limits.sort(function (a, b) { return a - b; });
+  var rows = sel.configs.filter(function (c) {
+    return c.config !== 'base' && c.pareto && c.efficiency !== null;
+  }).sort(function (a, b) { return b.efficiency - a.efficiency; });
+  if (!rows.length) {
+    var empty = document.createElement('tr');
+    empty.innerHTML = '<td colspan="5">sem configs na frente</td>';
+    tb.appendChild(empty);
+    return;
   }
-  limits.forEach(function (thr) {
-    var s = PARETO.select(res, thr, state.paretoCI);
-    var w = s.winnerRow;
+  rows.forEach(function (c) {
     var tr = document.createElement('tr');
-    if (thr === state.paretoThreshold) tr.className = 'selected';
-    tr.innerHTML = '<td>' + String(thr).replace('.', ',') + '%</td>' +
-      '<td><b>' + esc(s.winner) + '</b></td>' +
-      '<td class="num">' + (w ? signed(w.tPct, 2) : '0,00') + '</td>' +
-      '<td class="num">' + (w ? signed(w.bdPct, 2) : '0,00') + '</td>' +
-      '<td>' + (s.winner === 'base' ?
-        '<span class="pareto-tag keep">manter</span>' :
-        '<span class="pareto-tag adopt">adotar</span>') + '</td>';
+    if (c.selected) tr.className = 'selected';
+    var eff = isFinite(c.efficiency) ?
+      PARETO.fmtEfficiency(c.efficiency) : '∞';
+    tr.innerHTML = '<td>' + (c.selected ? '<b>' + esc(c.config) + '</b>' :
+      esc(c.config)) + '</td>' +
+      '<td class="num ' + (c.tPct > 0 ? 'good' : 'bad') + '">' +
+      signed(c.tPct, 2) + '</td>' +
+      '<td class="num ' + (c.bdPct < 0 ? 'good' : c.bdPct > 0 ? 'bad' : '') +
+      '">' + signed(c.bdPct, 2) + '</td>' +
+      '<td class="num"><b>' + eff + '</b></td>' +
+      '<td>' + (c.eligible ? '<span class="pareto-tag adopt">sim</span>' :
+        (c.tPct <= 0 ? 'T% ≤ 0' : 'IC95% ≤ 0')) + '</td>';
     tb.appendChild(tr);
   });
 }
@@ -2077,7 +2077,7 @@ function renderParetoSummary() {
   t.appendChild(tb);
   var results = paretoSummary.results;
   results.forEach(function (res) {
-    var s = PARETO.select(res, state.paretoThreshold, state.paretoCI);
+    var s = PARETO.select(res, state.paretoCI);
     var c = res.cell;
     var geo = c.plane === 'geometry';
     var w = s.winnerRow;
@@ -2182,11 +2182,14 @@ function renderParetoMethod() {
     'no mesmo QP aparece só como descrição e não entra na decisão.');
   line('<b>Seleção.</b> (1) frente de Pareto em (T%, BD%): A domina B se ' +
     'T_A ≥ T_B e BD_A ≤ BD_B, com pelo menos uma desigualdade estrita; ' +
-    '(2) adota uma config só se BD% ≤ limite e o limite inferior do ' +
-    'IC95% de T% for > 0; (3) entre as elegíveis, maior T%, com empate ' +
-    'abaixo de 0,05 p.p. resolvido pelo menor BD% — a mediana de 10 ' +
-    'repetições não distingue menos que isso, e a menor semi-largura de ' +
-    'IC95% da suíte é 0,12 p.p.; (4) se nenhuma cumprir, mantém o base.');
+    '(2) entre as da frente, só são elegíveis as que têm T% > 0 e o limite ' +
+    'inferior do IC95% de T% > 0; (3) adota a maior eficiência ' +
+    'E = T%/|BD%| — ganho de tempo por p.p. de |BD-rate|, sem limite fixo ' +
+    'e sem peso de cenário; (4) se nenhuma cumprir, mantém o base. ' +
+    '<b>Sinais:</b> BD% &lt; 0 (menos bits) entra pelo módulo, então um ' +
+    'BD% pequeno e negativo dá E alta; BD% = 0 dá E = ∞; T% ≤ 0 não é ' +
+    'elegível, mesmo com menos bits, porque o objetivo é tempo. Empate ' +
+    'numérico em E decide o maior T%, depois o menor |BD%|.');
   var st = paretoSummary.region === state.region && paretoSummary.done ?
     paretoSummaryStats() : null;
   if (st) {
@@ -2258,11 +2261,11 @@ function renderAbout() {
     'relatório (4 de geometria e 16 de atributo), com o vencedor de cada ' +
     'preenchimento. Na geometria, bytes e PSNR são idênticos nos 4 ' +
     'preenchimentos; só o tempo varia.');
-  p('A escolha não usa pesos: frente de Pareto em (T%, BD%), adota só ' +
-    'BD% ≤ limite e IC95% do tempo > 0, e mantém o base quando nenhuma ' +
-    'configuração passa. O limite é ajustável e a tabela de sensibilidade ' +
-    'mostra o efeito de 0 a 2%. O método completo está descrito na própria ' +
-    'aba; a implementação é pareto.js.');
+  p('A escolha não usa pesos nem limite fixo: frente de Pareto em ' +
+    '(T%, BD%), elegibilidade com T% > 0 e IC95% do tempo > 0, e adoção ' +
+    'pela maior eficiência E = T%/|BD%|. BD negativo entra pelo módulo, ' +
+    'BD = 0 vira ∞ e T% negativo não é elegível. O método completo está ' +
+    'descrito na própria aba; a implementação é pareto.js.');
   h3('Origem dos dados');
   D.provenance.source_runs.forEach(function (s) {
     var d = document.createElement('div');

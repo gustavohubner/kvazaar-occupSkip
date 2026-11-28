@@ -43,15 +43,15 @@ JavaScript puro. A URL troca de hash (`#rd`, `#overview`, `#pareto`,
   são marcadas como indisponíveis, sem extrapolação. O tempo usa a mediana das
   10 repetições e o IC95% vem de bootstrap; o BD-rate usa PCHIP nos 5 QPs e
   média geométrica das curvas (5 sequências × preenchimentos marcados). A
-  frente de Pareto é o conjunto não dominado; a regra adota a config mais
-  rápida com `BD% ≤ limite` e IC95% do tempo > 0 (empate de tempo abaixo de
-  0,05 p.p. decide pelo menor BD%), e mantém o `base` quando nenhuma passa.
+  frente de Pareto é o conjunto não dominado; entre as configs da frente com
+  `T% > 0` e IC95% do tempo > 0, adota a maior eficiência
+  `E = T%/|BD%|` (ganho de tempo por p.p. de |BD-rate|; BD negativo entra pelo
+  módulo e BD = 0 vira ∞), mantendo o `base` se nenhuma for elegível.
   Os **preenchimentos marcados na sidebar são agregados** no gráfico e na
   decisão principal; a tabela das 20 células (4 de geometria + 16 de
   atributo) conserva o vencedor individual de cada preenchimento — clicar
-  numa linha marca só aquele preenchimento no gráfico. O limite de BD-rate é
-  um campo numérico livre; a tabela de sensibilidade mostra 0, 0,5, 1 e 2% e
-  inclui o valor digitado quando ele não está nessa lista.
+  numa linha marca só aquele preenchimento no gráfico. A tabela de eficiência
+  ordena as configs da frente por `E`; não há limite fixo de BD-rate.
   O ΔPSNR no mesmo QP aparece só como descrição — o BD-rate já é medido a
   qualidade constante.
 - **Tabelas** — `Agregados` (uma linha por config, com opção de comparar
@@ -83,8 +83,7 @@ A aba **Pareto** é a exceção: ela usa velocidade, modo, plano, **região de
 PSNR e preenchimentos** da sidebar, e ignora os chips de configurações,
 sequências e taxas, porque o BD-rate é definido sobre as 5 sequências × 5
 taxas. Trocar a região ou os preenchimentos recalcula BD-rate e ΔQ (e o tempo
-quando muda o número de preenchimentos); trocar `limite` ou `IC95%` não refaz
-o tempo. Com um só preenchimento marcado o resultado é idêntico ao relatório;
+quando muda o número de preenchimentos); trocar `IC95%` não refaz o tempo. Com um só preenchimento marcado o resultado é idêntico ao relatório;
 com vários, o tempo soma as medianas e o BD-rate é a média geométrica das
 curvas por (sequência, preenchimento). Se nenhum estiver marcado, a aba usa
 os quatro por convenção e avisa. Na geometria os quatro são idênticos em
