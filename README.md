@@ -42,12 +42,15 @@ JavaScript puro. A URL troca de hash (`#rd`, `#overview`, `#pareto`,
   monotônicas ou com sobreposição de PSNR < 0,5 dB não recebem BD-rate —
   são marcadas como indisponíveis, sem extrapolação. O tempo usa a mediana das
   10 repetições e o IC95% vem de bootstrap; o BD-rate usa PCHIP nos 5 QPs e
-  média geométrica das 5 sequências. A frente de Pareto é o conjunto não
-  dominado; a regra adota a config mais rápida com `BD% ≤ limite` e IC95% do
-  tempo > 0 (empate de tempo abaixo de 0,05 p.p. decide pelo menor BD%), e
-  mantém o `base` quando nenhuma passa. A tabela das 20 células
-  (4 de geometria + 16 de atributo) permite clicar e carregar cada caso; a
-  tabela de sensibilidade mostra a escolha para limites de 0, 0,5, 1 e 2%.
+  média geométrica das curvas (5 sequências × preenchimentos marcados). A
+  frente de Pareto é o conjunto não dominado; a regra adota a config mais
+  rápida com `BD% ≤ limite` e IC95% do tempo > 0 (empate de tempo abaixo de
+  0,05 p.p. decide pelo menor BD%), e mantém o `base` quando nenhuma passa.
+  Os **preenchimentos marcados na sidebar são agregados** no gráfico e na
+  decisão principal; a tabela das 20 células (4 de geometria + 16 de
+  atributo) conserva o vencedor individual de cada preenchimento — clicar
+  numa linha marca só aquele preenchimento no gráfico. A tabela de
+  sensibilidade mostra a escolha para limites de 0, 0,5, 1 e 2%.
   O ΔPSNR no mesmo QP aparece só como descrição — o BD-rate já é medido a
   qualidade constante.
 - **Tabelas** — `Agregados` (uma linha por config, com opção de comparar
@@ -75,13 +78,16 @@ o mapa de calor acumulam os métodos selecionados. Há atalhos para
 `base + depth`, `base + QP`, `base + skip`, e "resetar". As curvas RD
 sempre incluem o `base` como referência e agregam as sequências selecionadas.
 
-A aba **Pareto** é a exceção: ela usa velocidade, modo, plano **e região de
-PSNR** da sidebar, mas tem o **seu próprio seletor de preenchimento** (um por
-vez) e ignora os chips de configurações, sequências e taxas, porque o BD-rate
-é definido sobre as 5 sequências × 5 taxas. Trocar a região recalcula o
-BD-rate e o ΔQ; trocar `preenchimento`, `limite` ou `IC95%` não refaz o tempo.
-Na geometria o seletor de preenchimento fica desabilitado: bytes e PSNR são
-idênticos nos 4 preenchimentos e só o tempo é agregado.
+A aba **Pareto** é a exceção: ela usa velocidade, modo, plano, **região de
+PSNR e preenchimentos** da sidebar, e ignora os chips de configurações,
+sequências e taxas, porque o BD-rate é definido sobre as 5 sequências × 5
+taxas. Trocar a região ou os preenchimentos recalcula BD-rate e ΔQ (e o tempo
+quando muda o número de preenchimentos); trocar `limite` ou `IC95%` não refaz
+o tempo. Com um só preenchimento marcado o resultado é idêntico ao relatório;
+com vários, o tempo soma as medianas e o BD-rate é a média geométrica das
+curvas por (sequência, preenchimento). Se nenhum estiver marcado, a aba usa
+os quatro por convenção e avisa. Na geometria os quatro são idênticos em
+bytes/PSNR, então agregá-los não altera a decisão.
 
 ## Regenerar os dados
 

@@ -44,6 +44,13 @@ function fillsOf(D) {
 function repsWall(cell) {
   return cell.time_s.reps.map(function (r) { return r.wall; });
 }
+function normFills(D, opts) {
+  var all = fillsOf(D);
+  var raw = opts.fills && opts.fills.length ? opts.fills :
+    (opts.fill ? [opts.fill] : all);
+  var fs = raw.filter(function (f) { return all.indexOf(f) >= 0; });
+  return fs.length ? fs : all.slice();
+}
 function pxOf(D, seq, mode, fill, region) {
   var w = D.pixel_weights[seq + '|' + mode + '|' + fill];
   return (w && w[PX_FIELD[region] || PX_FIELD[REGION_DEFAULT]]) || 1;
@@ -194,20 +201,29 @@ function bdRateLinear(basePts, cfgPts) {
 /* --------------------------- uma celula ---------------------------- */
 function computeCell(D, opts) {
   var plane = opts.plane;
-  var fill = opts.fill || fillsOf(D)[0];
+  var fills = normFills(D, opts);
+  // Tempo e BD-rate podem usar conjuntos distintos: na tabela de detalhe da
+  // geometria o tempo agrega os 4 preenchimentos e o BD-rate usa um (são
+  // idênticos em bytes/PSNR). No gráfico os dois usam os fills marcados.
+  var timeFills = opts.timeFills && opts.timeFills.length ?
+    normFills(D, {fills: opts.timeFills}) : fills;
   var speed = opts.speed;
   var mode = opts.mode;
   var region = PX_FIELD[opts.region] ? opts.region : REGION_DEFAULT;
   var B = opts.B || B_DEFAULT;
-  var seqs = seqsOf(D), rates = ratesOf(D), fills = fillsOf(D);
-  var timeFills = plane === 'geometry' ? fills : [fill];
-  var rnd = mulberry32(hash([plane, fill, speed, mode, B].join('|')));
+  var seqs = seqsOf(D), rates = ratesOf(D);
+  // Semente fixa por célula. Com um fill (ou geometria com os 4) ela é a
+  // mesma da análise publicada, para preservar os ICs já validados.
+  var seedFill = fills.length === 1 ? fills[0] :
+    (plane === 'geometry' ? fillsOf(D)[0] : fills.join(','));
+  var rnd = mulberry32(hash([plane, seedFill, speed, mode, B].join('|')));
+  var nCurves = fills.length * seqs.length;
 
   function arraysFor(cfg) {
     var out = [];
-    seqs.forEach(function (seq) {
-      rates.forEach(function (rate) {
-        timeFills.forEach(function (f) {
+    timeFills.forEach(function (f) {
+      seqs.forEach(function (seq) {
+        rates.forEach(function (rate) {
           var c = get(D, f, speed, mode, plane, seq, rate, cfg);
           if (c) out.push(repsWall(c));
         });
@@ -220,13 +236,15 @@ function computeCell(D, opts) {
   var baseTime = sumMedians(baseArrays);
   var baseBoot = bootSums(baseArrays, B, rnd);
   var baseBytes = 0, baseRows = [];
-  seqs.forEach(function (seq) {
-    rates.forEach(function (rate) {
-      var b = get(D, fill, speed, mode, plane, seq, rate, 'base');
-      if (!b) return;
-      baseBytes += b.bytes;
-      baseRows.push({px: pxOf(D, seq, mode, fill, region),
-        psnr: b.psnr_db[region]});
+  fills.forEach(function (f) {
+    seqs.forEach(function (seq) {
+      rates.forEach(function (rate) {
+        var b = get(D, f, speed, mode, plane, seq, rate, 'base');
+        if (!b) return;
+        baseBytes += b.bytes;
+        baseRows.push({px: pxOf(D, seq, mode, f, region),
+          psnr: b.psnr_db[region]});
+      });
     });
   });
   var basePsnr = energyPsnr(baseRows);
@@ -234,11 +252,17 @@ function computeCell(D, opts) {
   var configs = [];
   CONFIGS.forEach(function (cfg) {
     if (cfg === 'base') {
+      var zeroCurves = [];
+      fills.forEach(function (f) {
+        seqs.forEach(function (s) {
+          zeroCurves.push({seq: s, fill: f,
+            label: fills.length > 1 ? s + ' · ' + f : s, bd: 0});
+        });
+      });
       configs.push({
         config: 'base', timeS: baseTime, tPct: 0, ciLow: 0, ciHigh: 0,
         bdPct: 0, bdLinearPct: 0,
-        bdBySeq: seqs.map(function (s) { return {seq: s, bd: 0}; }),
-        bdLinearBySeq: seqs.map(function (s) { return {seq: s, bd: 0}; }),
+        bdBySeq: zeroCurves, bdLinearBySeq: zeroCurves,
         overlapMin: 0, dqDb: 0, bitsPct: 0, pareto: false
       });
       return;
@@ -257,28 +281,32 @@ function computeCell(D, opts) {
 
     var bdBySeq = [], bdVals = [], bdLinVals = [], bdLinBySeq = [], widths = [];
     var cfgBytes = 0, cfgRows = [];
-    seqs.forEach(function (seq) {
-      var bp = [], cp = [];
-      rates.forEach(function (rate) {
-        var bc = get(D, fill, speed, mode, plane, seq, rate, 'base');
-        var cc = get(D, fill, speed, mode, plane, seq, rate, cfg);
-        if (!bc || !cc) return;
-        bp.push([bc.psnr_db[region], Math.log(bc.bytes)]);
-        cp.push([cc.psnr_db[region], Math.log(cc.bytes)]);
-        cfgBytes += cc.bytes;
-        cfgRows.push({px: pxOf(D, seq, mode, fill, region),
-          psnr: cc.psnr_db[region]});
+    fills.forEach(function (f) {
+      seqs.forEach(function (seq) {
+        var bp = [], cp = [];
+        rates.forEach(function (rate) {
+          var bc = get(D, f, speed, mode, plane, seq, rate, 'base');
+          var cc = get(D, f, speed, mode, plane, seq, rate, cfg);
+          if (!bc || !cc) return;
+          bp.push([bc.psnr_db[region], Math.log(bc.bytes)]);
+          cp.push([cc.psnr_db[region], Math.log(cc.bytes)]);
+          cfgBytes += cc.bytes;
+          cfgRows.push({px: pxOf(D, seq, mode, f, region),
+            psnr: cc.psnr_db[region]});
+        });
+        var bd = bdRate(bp, cp);
+        var bdLin = bdRateLinear(bp, cp);
+        var label = fills.length > 1 ? seq + ' · ' + f : seq;
+        widths.push(bd.width);
+        if (bd.value === null) bdBySeq.push({seq: seq, fill: f,
+          label: label, bd: null});
+        else {
+          bdLinBySeq.push({seq: seq, fill: f, label: label, bd: bdLin});
+          bdBySeq.push({seq: seq, fill: f, label: label, bd: bd.value});
+          bdVals.push(bd.value);
+          if (bdLin !== null) bdLinVals.push(bdLin);
+        }
       });
-      var bd = bdRate(bp, cp);
-      var bdLin = bdRateLinear(bp, cp);
-      widths.push(bd.width);
-      if (bd.value === null) bdBySeq.push({seq: seq, bd: null});
-      else {
-        bdLinBySeq.push({seq: seq, bd: bdLin});
-        bdBySeq.push({seq: seq, bd: bd.value});
-        bdVals.push(bd.value);
-        if (bdLin !== null) bdLinVals.push(bdLin);
-      }
     });
     var cfgPsnr = energyPsnr(cfgRows);
     configs.push({
@@ -287,8 +315,8 @@ function computeCell(D, opts) {
       tPct: tPct,
       ciLow: ciLow,
       ciHigh: ciHigh,
-      bdPct: bdVals.length === seqs.length ? geoMeanPct(bdVals) : null,
-      bdLinearPct: bdLinVals.length === seqs.length ?
+      bdPct: bdVals.length === nCurves ? geoMeanPct(bdVals) : null,
+      bdLinearPct: bdLinVals.length === nCurves ?
         geoMeanPct(bdLinVals) : null,
       bdBySeq: bdBySeq,
       bdLinearBySeq: bdLinBySeq,
@@ -308,7 +336,8 @@ function computeCell(D, opts) {
   });
 
   return {
-    cell: {plane: plane, fill: fill, speed: speed, mode: mode, region: region},
+    cell: {plane: plane, fill: fills[0], fills: fills.slice(),
+      timeFills: timeFills.slice(), speed: speed, mode: mode, region: region},
     base: {timeS: baseTime, bytes: baseBytes, psnr: basePsnr},
     configs: configs,
     front: configs.filter(function (c) { return c.pareto; })
@@ -393,9 +422,11 @@ function cellsOf(D) {
 function computeAll(D, opts) {
   opts = opts || {};
   return cellsOf(D).map(function (c) {
+    var geo = c.plane === 'geometry';
     return computeCell(D, {
       plane: c.plane,
-      fill: c.fill === '*' ? fillsOf(D)[0] : c.fill,
+      fill: geo ? fillsOf(D)[0] : c.fill,
+      timeFills: geo ? fillsOf(D) : [c.fill],
       speed: c.speed, mode: c.mode, region: opts.region, B: opts.B
     });
   });

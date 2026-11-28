@@ -154,9 +154,7 @@
           <p class="hint" id="pareto-hint"></p>
         </div>
         <div class="tools">
-          <label>Preenchimento
-            <select id="pareto-fill"></select>
-          </label>
+          <span class="hint" id="pareto-fills-hint"></span>
           <label>Limite de BD-rate
             <select id="pareto-threshold">
               <option value="0">≤ 0% (não piorar)</option>
@@ -179,7 +177,7 @@
         </div>
         <svg id="pareto-svg" viewBox="0 0 980 520" role="img" aria-label="Frente de Pareto de BD-rate por ganho de tempo"></svg>
         <div class="legend" id="pareto-legend"></div>
-        <p class="hint">X = ganho de tempo contra o base; Y = BD-rate sobre a PSNR ocupada (negativo = menos bits para a mesma qualidade). A área verde é a região desejável (mais rápido e menos bits). A linha tracejada liga a frente de Pareto; o anel marca a configuração escolhida pela regra.</p>
+        <p class="hint">X = ganho de tempo contra o base; Y = BD-rate sobre a região de PSNR selecionada na sidebar (negativo = menos bits para a mesma qualidade). Os preenchimentos marcados na sidebar são agregados. A área verde é a região desejável (mais rápido e menos bits). A linha tracejada liga a frente de Pareto; o anel marca a configuração escolhida pela regra.</p>
       </div>
 
       <div class="two-col">
